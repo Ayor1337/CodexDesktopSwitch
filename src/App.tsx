@@ -259,10 +259,39 @@ export function App(): JSX.Element {
   }, [draft.kind, draft.providerName, providerText]);
 
   function startCreate(): void {
-    const nextDraft = createDraft();
-    setProviderText('');
+    const hasCurrentAuth = !!current?.authJson && Object.keys(current.authJson).length > 0;
+    const sourceAuth = hasCurrentAuth
+      ? (structuredClone(current!.authJson) as Record<string, unknown>)
+      : { ...emptyProfile.authJson };
+
+    const hasCurrentProvider = !!current?.providerName && !!current?.providerBlock;
+    const nextDraft: ProfileInput = hasCurrentProvider
+      ? {
+          name: '',
+          kind: 'custom',
+          authJson: sourceAuth,
+          providerName: current!.providerName!,
+          providerBlock: structuredClone(current!.providerBlock!) as Record<string, unknown>
+        }
+      : {
+          name: '',
+          kind: 'official',
+          authJson: sourceAuth,
+          providerName: '',
+          providerBlock: {}
+        };
+
     setDraft(nextDraft);
-    setAuthText(stringifyJson(nextDraft.authJson));
+    setAuthText(stringifyJson(sourceAuth));
+
+    if (nextDraft.kind === 'custom') {
+      void window.codexSwitch.codex
+        .stringifyToml(wrapProviderConfig(nextDraft.providerName || 'custom-provider', nextDraft.providerBlock || {}))
+        .then(setProviderText);
+    } else {
+      setProviderText('');
+    }
+
     setSelectedName(null);
     setIsNew(true);
     setPage('profiles');
@@ -291,6 +320,7 @@ export function App(): JSX.Element {
     }
 
     setDraft({ ...draft, kind, providerName: undefined, providerBlock: undefined });
+    setTab('account');
   }
 
   async function parseDraft(): Promise<ProfileInput> {
@@ -740,7 +770,12 @@ export function App(): JSX.Element {
                   <button className={tab === 'account' ? 'active' : ''} onClick={() => setTab('account')}>
                     验证
                   </button>
-                  <button className={tab === 'providers' ? 'active' : ''} onClick={() => setTab('providers')}>
+                  <button
+                    className={tab === 'providers' ? 'active' : ''}
+                    onClick={() => setTab('providers')}
+                    disabled={draft.kind === 'official'}
+                    title={draft.kind === 'official' ? '官方订阅无需配置 provider' : '供应商配置'}
+                  >
                     供应商
                   </button>
                 </div>
@@ -840,45 +875,61 @@ export function App(): JSX.Element {
                       {authEditorOpen && <textarea value={authText} spellCheck={false} onChange={(event) => setAuthText(event.target.value)} />}
                     </section>
                   </div>
+                ) : draft.kind === 'official' ? (
+                  <div className="providerEmpty">
+                    <div className="providerEmptyIcon">
+                      <KeyRound size={22} />
+                    </div>
+                    <h3>官方订阅无需 provider</h3>
+                    <p>
+                      Official OpenAI OAuth 直接读取 <code>~/.codex/auth.json</code>。
+                      切换至该 profile 时，会清除 <code>config.toml</code> 中的 <code>model_provider</code> 字段，
+                      让 Codex 走默认通道。
+                    </p>
+                    <button
+                      type="button"
+                      className="ghostBtn"
+                      onClick={() => changeDraftKind('custom')}
+                    >
+                      <Server size={14} />
+                      改为自定义 provider
+                    </button>
+                  </div>
                 ) : (
                   <div className="stackEditor">
                     <section>
                       <div className="panelHeader">
                         <CheckCircle2 size={16} />
                         <strong>Provider 字段</strong>
-                        <span>{draft.kind === 'official' ? '官方账号无需 provider' : draft.providerName}</span>
+                        <span>{draft.providerName}</span>
                       </div>
                       {providerParseError && <div className="inlineError">TOML 解析失败：{providerParseError}</div>}
                       <div className="previewForm">
                         <label>
                           model_provider
                           <input
-                            disabled={draft.kind === 'official'}
-                            value={draft.kind === 'official' ? '(移除)' : draft.providerName || ''}
+                            value={draft.providerName || ''}
                             onChange={(event) => updateProviderName(event.target.value)}
                           />
                         </label>
                         <label>
                           name
                           <input
-                            disabled={draft.kind === 'official'}
-                            value={draft.kind === 'official' ? 'Official OpenAI OAuth' : providerWireName}
+                            value={providerWireName}
                             onChange={(event) => updateProviderField(['name'], event.target.value)}
                           />
                         </label>
                         <label>
                           base_url
                           <input
-                            disabled={draft.kind === 'official'}
-                            value={draft.kind === 'official' ? '' : providerBaseUrl}
+                            value={providerBaseUrl}
                             onChange={(event) => updateProviderField(['base_url'], event.target.value)}
                           />
                         </label>
                         <label>
                           wire_api
                           <input
-                            disabled={draft.kind === 'official'}
-                            value={draft.kind === 'official' ? '' : providerWireApi}
+                            value={providerWireApi}
                             onChange={(event) => updateProviderField(['wire_api'], event.target.value)}
                           />
                         </label>
@@ -886,8 +937,7 @@ export function App(): JSX.Element {
                           requires_openai_auth
                           <input
                             type="checkbox"
-                            disabled={draft.kind === 'official'}
-                            checked={draft.kind !== 'official' && providerRequiresOpenAiAuth}
+                            checked={providerRequiresOpenAiAuth}
                             onChange={(event) => updateProviderField(['requires_openai_auth'], event.target.checked)}
                           />
                         </label>
@@ -905,7 +955,6 @@ export function App(): JSX.Element {
                         <textarea
                           value={providerText}
                           spellCheck={false}
-                          disabled={draft.kind === 'official'}
                           onChange={(event) => setProviderText(event.target.value)}
                         />
                       )}
