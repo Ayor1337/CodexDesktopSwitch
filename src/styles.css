@@ -136,6 +136,51 @@ button:disabled {
   opacity: 0.55;
 }
 
+/* ─────────────────────────  Scrollbars  ───────────────────────── */
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--hairline-strong) transparent;
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+  background: transparent;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+  border: 0;
+}
+
+::-webkit-scrollbar-thumb {
+  background-color: var(--hairline-strong);
+  border: 3px solid transparent;
+  border-radius: 999px;
+  background-clip: padding-box;
+  min-height: 36px;
+  transition: background-color 0.18s ease;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background-color: var(--muted-soft);
+  background-clip: padding-box;
+}
+
+::-webkit-scrollbar-thumb:active {
+  background-color: var(--muted);
+  background-clip: padding-box;
+}
+
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+textarea {
+  scrollbar-color: var(--hairline-strong) transparent;
+}
+
 /* ─────────────────────────  Frame & Title Bar  ───────────────────────── */
 
 .appRoot {
