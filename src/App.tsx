@@ -264,34 +264,17 @@ export function App(): JSX.Element {
       ? (structuredClone(current!.authJson) as Record<string, unknown>)
       : { ...emptyProfile.authJson };
 
-    const hasCurrentProvider = !!current?.providerName && !!current?.providerBlock;
-    const nextDraft: ProfileInput = hasCurrentProvider
-      ? {
-          name: '',
-          kind: 'custom',
-          authJson: sourceAuth,
-          providerName: current!.providerName!,
-          providerBlock: structuredClone(current!.providerBlock!) as Record<string, unknown>
-        }
-      : {
-          name: '',
-          kind: 'official',
-          authJson: sourceAuth,
-          providerName: '',
-          providerBlock: {}
-        };
+    const nextDraft: ProfileInput = {
+      name: '',
+      kind: 'official',
+      authJson: sourceAuth,
+      providerName: '',
+      providerBlock: {}
+    };
 
     setDraft(nextDraft);
     setAuthText(stringifyJson(sourceAuth));
-
-    if (nextDraft.kind === 'custom') {
-      void window.codexSwitch.codex
-        .stringifyToml(wrapProviderConfig(nextDraft.providerName || 'custom-provider', nextDraft.providerBlock || {}))
-        .then(setProviderText);
-    } else {
-      setProviderText('');
-    }
-
+    setProviderText('');
     setSelectedName(null);
     setIsNew(true);
     setPage('profiles');
