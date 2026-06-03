@@ -749,7 +749,7 @@ textarea {
 
 .workspaceCards {
   display: grid;
-  grid-template-columns: minmax(260px, 1fr) 220px;
+  grid-template-columns: minmax(240px, 1fr) minmax(280px, 320px);
   gap: 12px;
   margin-bottom: 16px;
 }
@@ -759,14 +759,62 @@ textarea {
   border-radius: 9px;
   background: var(--surface-card);
   padding: 14px;
-}
-
-.workspaceCard.compact {
-  max-width: 240px;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
 }
 
 .workspaceCard:nth-child(3) {
   grid-column: 1 / -1;
+}
+
+.cardLabel {
+  color: var(--body);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+}
+
+.kindToggle {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+  padding: 4px;
+  border: 1px solid var(--hairline);
+  border-radius: 9px;
+  background: var(--canvas-soft);
+}
+
+.kindToggle button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-height: 30px;
+  padding: 0 10px;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.2px;
+  transition: background-color 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.kindToggle button:hover:not(.active):not(:disabled) {
+  color: var(--ink);
+  background: var(--hover-surface);
+}
+
+.kindToggle button.active {
+  background: var(--surface-card);
+  color: var(--ink);
+  box-shadow: 0 1px 0 var(--hairline), 0 4px 10px var(--shadow-soft);
+}
+
+.kindToggle button svg {
+  flex-shrink: 0;
 }
 
 label {

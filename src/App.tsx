@@ -784,14 +784,30 @@ export function App(): JSX.Element {
                     <input value={draft.name} onChange={(event) => setDraft({ ...draft, name: event.target.value })} />
                   </label>
                 </div>
-                <div className="workspaceCard compact">
-                  <label>
-                    类型
-                    <select value={draft.kind} onChange={(event) => changeDraftKind(event.target.value as ProfileInput['kind'])}>
-                      <option value="official">Official OpenAI OAuth</option>
-                      <option value="custom">自定义</option>
-                    </select>
-                  </label>
+                <div className="workspaceCard">
+                  <span className="cardLabel">类型</span>
+                  <div className="kindToggle" role="radiogroup" aria-label="Profile 类型">
+                    <button
+                      type="button"
+                      role="radio"
+                      aria-checked={draft.kind === 'official'}
+                      className={draft.kind === 'official' ? 'active' : ''}
+                      onClick={() => changeDraftKind('official')}
+                    >
+                      <KeyRound size={14} />
+                      <span>官方订阅</span>
+                    </button>
+                    <button
+                      type="button"
+                      role="radio"
+                      aria-checked={draft.kind === 'custom'}
+                      className={draft.kind === 'custom' ? 'active' : ''}
+                      onClick={() => changeDraftKind('custom')}
+                    >
+                      <Server size={14} />
+                      <span>自定义</span>
+                    </button>
+                  </div>
                 </div>
                 {draft.kind === 'custom' && (
                   <div className="workspaceCard">
