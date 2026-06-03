@@ -135,9 +135,9 @@ function maskSecrets(value: unknown, parentKey = ''): unknown {
 }
 
 function describeAuth(authJson: Record<string, unknown>): string {
-  if (typeof authJson.OPENAI_API_KEY === 'string' && authJson.OPENAI_API_KEY) return 'API Key';
-  if (authJson.tokens && typeof authJson.tokens === 'object') return 'OAuth Tokens';
-  return '自定义 JSON';
+  if (typeof authJson.OPENAI_API_KEY === 'string' && authJson.OPENAI_API_KEY) return 'API 密钥';
+  if (authJson.tokens && typeof authJson.tokens === 'object') return 'OAuth 令牌';
+  return '自定义凭证';
 }
 
 function createDraft(profile?: Profile): ProfileInput {
@@ -498,10 +498,10 @@ export function App(): JSX.Element {
         >
           <span className="activePulse" />
           <span className="activeChipText">
-            <em>ACTIVE</em>
+            <em>当前</em>
             <strong>{activeChipLabel}</strong>
           </span>
-          {current?.providerName && <span className="activeChipMeta">/ {current.providerName}</span>}
+          {current?.providerName && <span className="activeChipMeta">· {current.providerName}</span>}
         </button>
         <div className="titleControls">
           <button
@@ -538,10 +538,10 @@ export function App(): JSX.Element {
               type="button"
               className={`railItem ${page === 'profiles' ? 'active' : ''}`}
               onClick={() => setPage('profiles')}
-              title="Profiles"
+              title="Profile 列表"
             >
               <Layers size={18} />
-              <span>Profiles</span>
+              <span>配置</span>
             </button>
             <button
               type="button"
@@ -566,10 +566,10 @@ export function App(): JSX.Element {
 
         <aside className="profileColumn">
           <div className="columnHead">
-            <span className="caption">Profiles</span>
+            <span className="caption">配置列表</span>
             <button type="button" className="ghostIconBtn" onClick={importCurrent} disabled={busy} title="导入当前 ~/.codex">
               <Download size={14} />
-              <span>Import</span>
+              <span>导入</span>
             </button>
           </div>
           <div className="profileList">
@@ -605,8 +605,8 @@ export function App(): JSX.Element {
             <>
               <header className="statusStrip">
                 <div>
-                  <p className="eyeline">Settings</p>
-                  <h2>应用偏好</h2>
+                  <p className="eyeline">应用配置</p>
+                  <h2>偏好设置</h2>
                 </div>
               </header>
 
@@ -617,7 +617,7 @@ export function App(): JSX.Element {
                   <section>
                     <div className="panelHeader">
                       <ShieldCheck size={16} />
-                      <strong>应用设置</strong>
+                      <strong>常规</strong>
                       <span>启动与验证</span>
                     </div>
                     <div className="settingsForm">
@@ -791,7 +791,7 @@ export function App(): JSX.Element {
                     <section>
                       <div className="panelHeader">
                         <ShieldCheck size={16} />
-                        <strong>掩码预览</strong>
+                        <strong>凭证摘要</strong>
                         <span>{describeAuth(authObject || draft.authJson)}</span>
                       </div>
                       <div className="previewForm">
@@ -845,8 +845,8 @@ export function App(): JSX.Element {
                     <section>
                       <div className="panelHeader">
                         <CheckCircle2 size={16} />
-                        <strong>Provider 预览</strong>
-                        <span>{draft.kind === 'official' ? 'Official OpenAI OAuth 会移除 model_provider' : draft.providerName}</span>
+                        <strong>Provider 字段</strong>
+                        <span>{draft.kind === 'official' ? '官方账号无需 provider' : draft.providerName}</span>
                       </div>
                       {providerParseError && <div className="inlineError">TOML 解析失败：{providerParseError}</div>}
                       <div className="previewForm">
