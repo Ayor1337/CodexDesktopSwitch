@@ -8,9 +8,37 @@
   "scripts": {
     "dev": "electron-vite dev",
     "build": "tsc --noEmit && electron-vite build",
+    "dist:win": "npm run build && electron-builder --win --x64 --publish never",
+    "dist:win:release": "npm run build && electron-builder --win --x64 --publish always",
     "preview": "electron-vite preview",
     "test": "vitest run",
     "lint": "tsc --noEmit"
+  },
+  "build": {
+    "appId": "com.codexswitch.app",
+    "productName": "Codex Switch",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "out/**/*",
+      "package.json"
+    ],
+    "win": {
+      "target": [
+        "nsis",
+        "portable"
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "artifactName": "${productName}-Setup-${version}-${arch}.${ext}"
+    },
+    "portable": {
+      "artifactName": "${productName}-Portable-${version}-${arch}.${ext}"
+    }
   },
   "dependencies": {
     "@iarna/toml": "^2.2.5",
@@ -25,6 +53,7 @@
     "@types/react": "^18.3.18",
     "@types/react-dom": "^18.3.5",
     "electron": "^33.2.1",
+    "electron-builder": "^26.8.1",
     "electron-vite": "^2.3.0",
     "typescript": "^5.7.2",
     "vite": "^5.4.11",
