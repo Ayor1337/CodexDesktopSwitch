@@ -21,6 +21,10 @@ const api: AppApi = {
   backup: {
     list: () => ipcRenderer.invoke('backup:list'),
     restore: (backupId: string) => ipcRenderer.invoke('backup:restore', backupId)
+  },
+  settings: {
+    get: () => ipcRenderer.invoke('settings:get'),
+    update: (patch) => ipcRenderer.invoke('settings:update', patch)
   }
 };
 

@@ -27,6 +27,14 @@ export interface ProfileState {
   profiles: Profile[];
 }
 
+export interface AppSettings {
+  version: 1;
+  launchAtLogin: boolean;
+  silentStartup: boolean;
+  openAiAuthEnabled: boolean;
+  openAiAuthProfileName: string | null;
+}
+
 export interface CurrentCodexState {
   authJson: AuthJson | null;
   config: Record<string, unknown>;
@@ -77,6 +85,10 @@ export interface AppApi {
   backup: {
     list: () => Promise<BackupEntry[]>;
     restore: (backupId: string) => Promise<void>;
+  };
+  settings: {
+    get: () => Promise<AppSettings>;
+    update: (patch: Partial<Omit<AppSettings, 'version'>>) => Promise<AppSettings>;
   };
 }
 

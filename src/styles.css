@@ -521,6 +521,70 @@ code {
   letter-spacing: 0;
 }
 
+.checkboxField {
+  justify-content: end;
+}
+
+.checkboxField input {
+  width: 18px;
+  height: 18px;
+  box-shadow: none;
+}
+
+.settingsForm {
+  display: grid;
+  gap: 12px;
+  padding: 12px;
+}
+
+.toggleField {
+  display: grid;
+  grid-template-columns: 1fr 44px;
+  align-items: center;
+  gap: 16px;
+  min-height: 58px;
+  border: 1px solid #e1e7f0;
+  border-radius: 8px;
+  padding: 10px 12px;
+  background: #ffffff;
+}
+
+.toggleField span {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.toggleField strong {
+  color: #172033;
+  font-size: 13px;
+}
+
+.toggleField small {
+  color: #667085;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.toggleField input {
+  width: 18px;
+  height: 18px;
+  justify-self: end;
+  box-shadow: none;
+}
+
+.settingsHint {
+  border: 1px solid #bfdbfe;
+  border-radius: 8px;
+  padding: 10px 12px;
+  color: #1d4ed8;
+  background: #eff6ff;
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 1.45;
+}
+
 .inlineError {
   margin: 12px 12px 0;
   border-radius: 7px;

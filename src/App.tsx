@@ -12,9 +12,9 @@ import {
   ShieldCheck,
   Zap
 } from 'lucide-react';
-import type { CurrentCodexState, Profile, ProfileInput, ProfileState } from './types';
+import type { AppSettings, CurrentCodexState, Profile, ProfileInput, ProfileState } from './types';
 
-type Tab = 'account' | 'providers';
+type Tab = 'account' | 'providers' | 'settings';
 type Notice = { kind: 'success' | 'error' | 'info'; text: string } | null;
 type NameDialog =
   | { kind: 'import'; title: string; value: string }
@@ -27,6 +27,14 @@ const emptyProfile: ProfileInput = {
   authJson: { OPENAI_API_KEY: '' },
   providerName: '',
   providerBlock: {}
+};
+
+const defaultSettings: AppSettings = {
+  version: 1,
+  launchAtLogin: false,
+  silentStartup: false,
+  openAiAuthEnabled: false,
+  openAiAuthProfileName: null
 };
 
 function stringifyJson(value: unknown): string {
@@ -51,7 +59,7 @@ function readPath(source: Record<string, unknown> | null, path: string[]): strin
   return typeof current === 'string' ? current : '';
 }
 
-function writePath(source: Record<string, unknown>, path: string[], value: string): Record<string, unknown> {
+function writePath(source: Record<string, unknown>, path: string[], value: unknown): Record<string, unknown> {
   const next = structuredClone(source);
   let cursor = next;
   for (const key of path.slice(0, -1)) {
@@ -61,6 +69,35 @@ function writePath(source: Record<string, unknown>, path: string[], value: strin
   }
   cursor[path[path.length - 1]] = value;
   return next;
+}
+
+function readBool(source: Record<string, unknown>, path: string[]): boolean {
+  let current: unknown = source;
+  for (const key of path) {
+    if (!current || typeof current !== 'object' || Array.isArray(current)) return false;
+    current = (current as Record<string, unknown>)[key];
+  }
+  return current === true;
+}
+
+function wrapProviderConfig(providerName: string, providerBlock: Record<string, unknown>): Record<string, unknown> {
+  return {
+    model_providers: {
+      [providerName]: providerBlock
+    }
+  };
+}
+
+function extractProviderBlock(parsed: Record<string, unknown>, providerName: string): Record<string, unknown> {
+  const providers = parsed.model_providers;
+  if (providers && typeof providers === 'object' && !Array.isArray(providers)) {
+    const providerMap = providers as Record<string, unknown>;
+    const matched = providerMap[providerName];
+    if (matched && typeof matched === 'object' && !Array.isArray(matched)) return matched as Record<string, unknown>;
+    const first = Object.values(providerMap).find((value) => value && typeof value === 'object' && !Array.isArray(value));
+    if (first) return first as Record<string, unknown>;
+  }
+  return parsed;
 }
 
 function maskValue(value: unknown): string {
@@ -109,6 +146,7 @@ export function App(): JSX.Element {
   const [selectedName, setSelectedName] = useState<string | null>(null);
   const [activeDetected, setActiveDetected] = useState<string | null>(null);
   const [current, setCurrent] = useState<CurrentCodexState | null>(null);
+  const [settings, setSettings] = useState<AppSettings>(defaultSettings);
   const [tab, setTab] = useState<Tab>('account');
   const [notice, setNotice] = useState<Notice>(null);
   const [draft, setDraft] = useState<ProfileInput>(() => createDraft());
@@ -125,19 +163,21 @@ export function App(): JSX.Element {
   const [focusedSecretPath, setFocusedSecretPath] = useState<string | null>(null);
 
   const selected = useMemo(
-    () => state.profiles.find((profile) => profile.name === selectedName) || state.profiles[0] || null,
+    () => state.profiles.find((profile) => profile.name === selectedName) || null,
     [selectedName, state.profiles]
   );
 
   async function refresh(): Promise<void> {
-    const [profiles, codexState, detected] = await Promise.all([
+    const [profiles, codexState, detected, appSettings] = await Promise.all([
       window.codexSwitch.profiles.list(),
       window.codexSwitch.codex.readCurrent(),
-      window.codexSwitch.codex.detectActiveProfile()
+      window.codexSwitch.codex.detectActiveProfile(),
+      window.codexSwitch.settings.get()
     ]);
     setState(profiles);
     setCurrent(codexState);
     setActiveDetected(detected);
+    setSettings(appSettings);
     setSelectedName((name) => name || profiles.profiles[0]?.name || null);
   }
 
@@ -150,8 +190,13 @@ export function App(): JSX.Element {
     const nextDraft = createDraft(selected);
     setDraft(nextDraft);
     setAuthText(stringifyJson(nextDraft.authJson));
+    if (nextDraft.kind === 'official') {
+      setProviderText('');
+      setIsNew(false);
+      return;
+    }
     window.codexSwitch.codex
-      .stringifyToml(nextDraft.providerBlock || {})
+      .stringifyToml(wrapProviderConfig(nextDraft.providerName || 'custom-provider', nextDraft.providerBlock || {}))
       .then(setProviderText)
       .catch((error) => setNotice({ kind: 'error', text: String(error.message || error) }));
     setIsNew(false);
@@ -166,7 +211,8 @@ export function App(): JSX.Element {
       }
 
       try {
-        const providerBlock = providerText.trim() ? await window.codexSwitch.codex.parseToml(providerText) : {};
+        const parsedProviderToml = providerText.trim() ? await window.codexSwitch.codex.parseToml(providerText) : {};
+        const providerBlock = extractProviderBlock(parsedProviderToml, draft.providerName || '');
         if (cancelled) return;
         setProviderParseError(null);
         setDraft((currentDraft) =>
@@ -202,14 +248,20 @@ export function App(): JSX.Element {
   function changeDraftKind(kind: ProfileInput['kind']): void {
     if (kind === 'custom') {
       const providerName = draft.providerName || 'custom-provider';
+      const providerBlock = draft.providerBlock || {
+        name: providerName,
+        base_url: 'https://tokenflux.dev/v1',
+        wire_api: 'responses',
+        requires_openai_auth: true
+      };
       setDraft({
         ...draft,
         kind,
         providerName,
-        providerBlock: draft.providerBlock || { name: providerName, base_url: 'https://example.com/v1', env_key: 'OPENAI_API_KEY' }
+        providerBlock
       });
       if (!providerText.trim()) {
-        setProviderText(`name = "${providerName}"\nbase_url = "https://example.com/v1"\nenv_key = "OPENAI_API_KEY"\n`);
+        void window.codexSwitch.codex.stringifyToml(wrapProviderConfig(providerName, providerBlock)).then(setProviderText);
       }
       return;
     }
@@ -219,7 +271,8 @@ export function App(): JSX.Element {
 
   async function parseDraft(): Promise<ProfileInput> {
     const authJson = JSON.parse(authText) as Record<string, unknown>;
-    const providerBlock = draft.kind === 'custom' ? await window.codexSwitch.codex.parseToml(providerText) : undefined;
+    const parsedProviderToml = draft.kind === 'custom' ? await window.codexSwitch.codex.parseToml(providerText) : undefined;
+    const providerBlock = parsedProviderToml ? extractProviderBlock(parsedProviderToml, draft.providerName || '') : undefined;
     return {
       ...draft,
       authJson,
@@ -333,12 +386,35 @@ export function App(): JSX.Element {
     requestSwitch(selected.name);
   }
 
+  async function saveSettings(patch: Partial<Omit<AppSettings, 'version'>>): Promise<void> {
+    const nextSettings = { ...settings, ...patch, version: 1 };
+    if (nextSettings.openAiAuthEnabled) {
+      const officialProfiles = state.profiles.filter((profile) => profile.kind === 'official');
+      if (officialProfiles.length === 0) {
+        setNotice({ kind: 'error', text: '没有可用于 OpenAI 官方账号验证的 Official OpenAI OAuth profile' });
+        return;
+      }
+      if (!nextSettings.openAiAuthProfileName) {
+        nextSettings.openAiAuthProfileName = officialProfiles[0].name;
+      }
+    }
+
+    const saved = await run(() => window.codexSwitch.settings.update(nextSettings), '设置已保存');
+    if (saved) setSettings(saved);
+  }
+
   const authObject = parseJsonObject(authText);
   const providerBlock = draft.providerBlock || {};
   const providerBaseUrl = readPath(providerBlock, ['base_url']);
-  const providerEnvKey = readPath(providerBlock, ['env_key']);
+  const providerWireApi = readPath(providerBlock, ['wire_api']);
   const providerWireName = readPath(providerBlock, ['name']);
+  const providerRequiresOpenAiAuth = readBool(providerBlock, ['requires_openai_auth']);
   const activeName = activeDetected || state.active;
+  const officialProfiles = state.profiles.filter((profile) => profile.kind === 'official');
+  const selectedOpenAiAuthProfile =
+    settings.openAiAuthProfileName && officialProfiles.some((profile) => profile.name === settings.openAiAuthProfileName)
+      ? settings.openAiAuthProfileName
+      : officialProfiles[0]?.name || '';
 
   function updateAuthField(path: string[], value: string): void {
     const next = writePath(authObject || {}, path, value);
@@ -360,10 +436,15 @@ export function App(): JSX.Element {
     };
   }
 
-  function updateProviderField(path: string[], value: string): void {
+  function updateProviderName(value: string): void {
+    setDraft({ ...draft, providerName: value });
+    void window.codexSwitch.codex.stringifyToml(wrapProviderConfig(value || 'custom-provider', providerBlock)).then(setProviderText);
+  }
+
+  function updateProviderField(path: string[], value: unknown): void {
     const nextBlock = writePath(providerBlock, path, value);
     setDraft({ ...draft, providerBlock: nextBlock });
-    void window.codexSwitch.codex.stringifyToml(nextBlock).then(setProviderText);
+    void window.codexSwitch.codex.stringifyToml(wrapProviderConfig(draft.providerName || 'custom-provider', nextBlock)).then(setProviderText);
   }
 
   return (
@@ -454,6 +535,7 @@ export function App(): JSX.Element {
               <p>
                 将切换到 <strong>{switchDialog.profileName}</strong>。确认后会关闭 `codex` 和 `extension-host` 相关进程，然后重新启动
                 `codex`，用于重新加载新的 auth/config。
+                若已开启 OpenAI 官方账号验证，切换自定义 profile 时不会覆盖 auth.json。
               </p>
               <div className="dialogActions">
                 <button type="button" disabled={busy} onClick={() => setSwitchDialog(null)}>
@@ -518,6 +600,9 @@ export function App(): JSX.Element {
             <button className={tab === 'providers' ? 'active' : ''} onClick={() => setTab('providers')}>
               供应商
             </button>
+            <button className={tab === 'settings' ? 'active' : ''} onClick={() => setTab('settings')}>
+              设置
+            </button>
           </div>
         </header>
 
@@ -554,7 +639,7 @@ export function App(): JSX.Element {
             <div className="workspaceCard">
               <label>
                 Provider 名称
-                <input value={draft.providerName || ''} onChange={(event) => setDraft({ ...draft, providerName: event.target.value })} />
+                <input value={draft.providerName || ''} onChange={(event) => updateProviderName(event.target.value)} />
               </label>
             </div>
           )}
@@ -615,7 +700,7 @@ export function App(): JSX.Element {
                 {authEditorOpen && <textarea value={authText} spellCheck={false} onChange={(event) => setAuthText(event.target.value)} />}
               </section>
             </div>
-          ) : (
+          ) : tab === 'providers' ? (
             <div className="stackEditor">
               <section>
                 <div className="panelHeader">
@@ -630,7 +715,7 @@ export function App(): JSX.Element {
                     <input
                       disabled={draft.kind === 'official'}
                       value={draft.kind === 'official' ? '(移除)' : draft.providerName || ''}
-                      onChange={(event) => setDraft({ ...draft, providerName: event.target.value })}
+                      onChange={(event) => updateProviderName(event.target.value)}
                     />
                   </label>
                   <label>
@@ -650,11 +735,20 @@ export function App(): JSX.Element {
                     />
                   </label>
                   <label>
-                    env_key
+                    wire_api
                     <input
                       disabled={draft.kind === 'official'}
-                      value={draft.kind === 'official' ? '' : providerEnvKey}
-                      onChange={(event) => updateProviderField(['env_key'], event.target.value)}
+                      value={draft.kind === 'official' ? '' : providerWireApi}
+                      onChange={(event) => updateProviderField(['wire_api'], event.target.value)}
+                    />
+                  </label>
+                  <label className="checkboxField">
+                    requires_openai_auth
+                    <input
+                      type="checkbox"
+                      disabled={draft.kind === 'official'}
+                      checked={draft.kind !== 'official' && providerRequiresOpenAiAuth}
+                      onChange={(event) => updateProviderField(['requires_openai_auth'], event.target.checked)}
                     />
                   </label>
                 </div>
@@ -675,6 +769,84 @@ export function App(): JSX.Element {
                     onChange={(event) => setProviderText(event.target.value)}
                   />
                 )}
+              </section>
+            </div>
+          ) : (
+            <div className="stackEditor">
+              <section>
+                <div className="panelHeader">
+                  <ShieldCheck size={16} />
+                  <strong>应用设置</strong>
+                  <span>启动与验证</span>
+                </div>
+                <div className="settingsForm">
+                  <label className="toggleField">
+                    <span>
+                      <strong>开机自启动</strong>
+                      <small>登录系统后自动启动 Codex Switch</small>
+                    </span>
+                    <input
+                      type="checkbox"
+                      checked={settings.launchAtLogin}
+                      disabled={busy}
+                      onChange={(event) => void saveSettings({ launchAtLogin: event.target.checked })}
+                    />
+                  </label>
+                  <label className="toggleField">
+                    <span>
+                      <strong>静默启动</strong>
+                      <small>仅开机自启动时隐藏主窗口</small>
+                    </span>
+                    <input
+                      type="checkbox"
+                      checked={settings.silentStartup}
+                      disabled={busy || !settings.launchAtLogin}
+                      onChange={(event) => void saveSettings({ silentStartup: event.target.checked })}
+                    />
+                  </label>
+                  <label className="toggleField">
+                    <span>
+                      <strong>OpenAI 官方账号验证</strong>
+                      <small>自定义 provider 切换时保留官方 auth.json 登录态</small>
+                    </span>
+                    <input
+                      type="checkbox"
+                      checked={settings.openAiAuthEnabled}
+                      disabled={busy || officialProfiles.length === 0}
+                      onChange={(event) =>
+                        void saveSettings({
+                          openAiAuthEnabled: event.target.checked,
+                          openAiAuthProfileName: event.target.checked ? selectedOpenAiAuthProfile || null : settings.openAiAuthProfileName
+                        })
+                      }
+                    />
+                  </label>
+                  {officialProfiles.length === 0 ? (
+                    <div className="inlineError">需要先创建或导入一个 Official OpenAI OAuth profile，才能启用官方账号验证。</div>
+                  ) : (
+                    settings.openAiAuthEnabled && (
+                      <>
+                        <label>
+                          官方账号凭证
+                          <select
+                            value={selectedOpenAiAuthProfile}
+                            disabled={busy}
+                            onChange={(event) => void saveSettings({ openAiAuthProfileName: event.target.value })}
+                          >
+                            {officialProfiles.map((profile) => (
+                              <option key={profile.name} value={profile.name}>
+                                {profile.name}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                        <div className="settingsHint">
+                          切换自定义 profile 时不会覆盖 auth.json；自定义 OPENAI_API_KEY 会写入 provider 的 experimental_bearer_token。
+                        </div>
+                      </>
+                    )
+                  )}
+                </div>
               </section>
             </div>
           )}

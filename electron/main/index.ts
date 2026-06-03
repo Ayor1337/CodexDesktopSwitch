@@ -6,8 +6,9 @@ import { CodexSwitchService } from './service';
 import { restartCodexProcesses } from './processes';
 
 let mainWindow: BrowserWindow | null = null;
+const SILENT_STARTUP_ARG = '--silent-startup';
 
-function createWindow(): void {
+function createWindow(showOnReady = true): void {
   mainWindow = new BrowserWindow({
     width: 1240,
     height: 820,
@@ -25,7 +26,7 @@ function createWindow(): void {
   });
 
   mainWindow.on('ready-to-show', () => {
-    mainWindow?.show();
+    if (showOnReady) mainWindow?.show();
   });
 
   mainWindow.webContents.setWindowOpenHandler((details) => {
@@ -40,9 +41,14 @@ function createWindow(): void {
   }
 }
 
-function registerIpc(): void {
-  const service = new CodexSwitchService(createRuntimePaths(app.getPath('userData')));
+function applyLoginItemSettings(settings: { launchAtLogin: boolean; silentStartup: boolean }): void {
+  app.setLoginItemSettings({
+    openAtLogin: settings.launchAtLogin,
+    args: settings.launchAtLogin && settings.silentStartup ? [SILENT_STARTUP_ARG] : []
+  });
+}
 
+function registerIpc(service: CodexSwitchService): void {
   ipcMain.handle('profiles:list', () => service.listProfiles());
   ipcMain.handle('profiles:create', (_event, profile) => service.createProfile(profile));
   ipcMain.handle('profiles:update', (_event, name, patch) => service.updateProfile(name, patch));
@@ -57,14 +63,23 @@ function registerIpc(): void {
   ipcMain.handle('codex:restart', () => restartCodexProcesses());
   ipcMain.handle('backup:list', () => service.listBackups());
   ipcMain.handle('backup:restore', (_event, backupId) => service.restoreBackup(backupId));
+  ipcMain.handle('settings:get', () => service.getSettings());
+  ipcMain.handle('settings:update', async (_event, patch) => {
+    const settings = await service.updateSettings(patch);
+    applyLoginItemSettings(settings);
+    return settings;
+  });
 }
 
 app.whenReady().then(() => {
-  registerIpc();
-  createWindow();
+  const service = new CodexSwitchService(createRuntimePaths(app.getPath('userData')));
+  registerIpc(service);
+  service.getSettings().then(applyLoginItemSettings).catch(console.error);
+  createWindow(!process.argv.includes(SILENT_STARTUP_ARG));
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
+    else mainWindow?.show();
   });
 });
 

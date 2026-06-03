@@ -41,7 +41,15 @@ export function extractCurrent(parsed: Record<string, unknown>): { providerName:
   };
 }
 
-export function applyProfileToConfig(parsed: Record<string, unknown>, profile: Profile | ProfileInput): Record<string, unknown> {
+interface ApplyProfileOptions {
+  embedBearerToken?: boolean;
+}
+
+export function applyProfileToConfig(
+  parsed: Record<string, unknown>,
+  profile: Profile | ProfileInput,
+  options: ApplyProfileOptions = {}
+): Record<string, unknown> {
   if (profileKind(profile) === 'official') {
     delete parsed.model_provider;
     return parsed;
@@ -57,7 +65,18 @@ export function applyProfileToConfig(parsed: Record<string, unknown>, profile: P
   if (!parsed.model_providers || typeof parsed.model_providers !== 'object' || Array.isArray(parsed.model_providers)) {
     parsed.model_providers = {};
   }
-  (parsed.model_providers as Record<string, unknown>)[profile.providerName] = { ...profile.providerBlock };
+  const providerBlock: ProviderBlock = {
+    ...profile.providerBlock,
+    wire_api: profile.providerBlock.wire_api ?? 'responses'
+  };
+  if (options.embedBearerToken) {
+    if (typeof profile.authJson.OPENAI_API_KEY === 'string' && profile.authJson.OPENAI_API_KEY.length > 0) {
+      providerBlock.experimental_bearer_token = profile.authJson.OPENAI_API_KEY;
+    }
+  } else {
+    providerBlock.requires_openai_auth = profile.providerBlock.requires_openai_auth ?? true;
+  }
+  (parsed.model_providers as Record<string, unknown>)[profile.providerName] = providerBlock;
   return parsed;
 }
 

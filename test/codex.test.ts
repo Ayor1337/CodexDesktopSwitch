@@ -48,7 +48,71 @@ describe('codex config handling', () => {
     });
 
     expect(parsed.model_provider).toBe('tokenflux');
-    expect((parsed.model_providers as Record<string, Record<string, string>>).tokenflux.base_url).toBe('https://proxy.test/v1');
+    const provider = (parsed.model_providers as Record<string, Record<string, unknown>>).tokenflux;
+    expect(provider.base_url).toBe('https://proxy.test/v1');
+    expect(provider.wire_api).toBe('responses');
+    expect(provider.requires_openai_auth).toBe(true);
+  });
+
+  it('keeps explicit custom provider auth setting', () => {
+    const parsed: Record<string, unknown> = { model: 'gpt-5' };
+
+    applyProfileToConfig(parsed, {
+      name: 'proxy',
+      kind: 'custom',
+      authJson: {},
+      providerName: 'tokenflux',
+      providerBlock: {
+        base_url: 'https://proxy.test/v1',
+        env_key: 'OPENAI_API_KEY',
+        wire_api: 'chat',
+        requires_openai_auth: false
+      }
+    });
+
+    const provider = (parsed.model_providers as Record<string, Record<string, unknown>>).tokenflux;
+    expect(provider.wire_api).toBe('chat');
+    expect(provider.requires_openai_auth).toBe(false);
+  });
+
+  it('writes custom provider bearer token when requested', () => {
+    const parsed: Record<string, unknown> = { model: 'gpt-5' };
+
+    applyProfileToConfig(
+      parsed,
+      {
+        name: 'proxy',
+        kind: 'custom',
+        authJson: { OPENAI_API_KEY: 'proxy-key' },
+        providerName: 'tokenflux',
+        providerBlock: { base_url: 'https://proxy.test/v1', env_key: 'OPENAI_API_KEY' }
+      },
+      { embedBearerToken: true }
+    );
+
+    const provider = (parsed.model_providers as Record<string, Record<string, unknown>>).tokenflux;
+    expect(provider.experimental_bearer_token).toBe('proxy-key');
+    expect(provider.wire_api).toBe('responses');
+    expect(provider.requires_openai_auth).toBeUndefined();
+  });
+
+  it('does not write empty custom provider bearer token', () => {
+    const parsed: Record<string, unknown> = { model: 'gpt-5' };
+
+    applyProfileToConfig(
+      parsed,
+      {
+        name: 'proxy',
+        kind: 'custom',
+        authJson: { OPENAI_API_KEY: '' },
+        providerName: 'tokenflux',
+        providerBlock: { base_url: 'https://proxy.test/v1', env_key: 'OPENAI_API_KEY' }
+      },
+      { embedBearerToken: true }
+    );
+
+    const provider = (parsed.model_providers as Record<string, Record<string, unknown>>).tokenflux;
+    expect(provider.experimental_bearer_token).toBeUndefined();
   });
 
   it('imports current official profile', async () => {
