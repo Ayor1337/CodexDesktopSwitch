@@ -1,20 +1,80 @@
 import { join } from 'node:path';
-import { app, BrowserWindow, ipcMain, shell } from 'electron';
+import { app, BrowserWindow, ipcMain, Menu, shell, Tray } from 'electron';
 import TOML from '@iarna/toml';
+import type { AppSettings } from '../../src/types';
 import { createRuntimePaths } from './paths';
 import { CodexSwitchService } from './service';
 import { restartCodexProcesses } from './processes';
 
 let mainWindow: BrowserWindow | null = null;
+let tray: Tray | null = null;
+let settingsSnapshot: AppSettings | null = null;
+let isQuitting = false;
 const SILENT_STARTUP_ARG = '--silent-startup';
 
+function getAppIconPath(): string {
+  return app.isPackaged
+    ? join(process.resourcesPath, 'icon.ico')
+    : join(process.cwd(), 'resources/icon.png');
+}
+
+function showMainWindow(): void {
+  if (mainWindow) {
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.show();
+    mainWindow.focus();
+    return;
+  }
+  createWindow();
+}
+
+function syncTray(): void {
+  if (settingsSnapshot?.closeBehavior !== 'minimizeToTray') {
+    tray?.destroy();
+    tray = null;
+    return;
+  }
+
+  if (!tray) {
+    tray = new Tray(getAppIconPath());
+    tray.setToolTip('Codex Switch');
+    tray.on('click', showMainWindow);
+    tray.on('double-click', showMainWindow);
+  }
+
+  tray.setContextMenu(
+    Menu.buildFromTemplate([
+      { label: '显示 Codex Switch', click: showMainWindow },
+      { type: 'separator' },
+      {
+        label: '退出',
+        click: () => {
+          isQuitting = true;
+          app.quit();
+        }
+      }
+    ])
+  );
+}
+
+function applySettings(settings: AppSettings): void {
+  settingsSnapshot = settings;
+  syncTray();
+  app.setLoginItemSettings({
+    openAtLogin: settings.launchAtLogin,
+    args: settings.launchAtLogin && settings.silentStartup ? [SILENT_STARTUP_ARG] : []
+  });
+}
+
 function createWindow(showOnReady = true): void {
+  const windowIcon = getAppIconPath();
   mainWindow = new BrowserWindow({
     width: 1240,
     height: 820,
     minWidth: 980,
     minHeight: 680,
     title: 'Codex Switch',
+    icon: windowIcon,
     show: false,
     autoHideMenuBar: true,
     webPreferences: {
@@ -29,6 +89,16 @@ function createWindow(showOnReady = true): void {
     if (showOnReady) mainWindow?.show();
   });
 
+  mainWindow.on('close', (event) => {
+    if (isQuitting || settingsSnapshot?.closeBehavior !== 'minimizeToTray') return;
+    event.preventDefault();
+    mainWindow?.hide();
+  });
+
+  mainWindow.on('closed', () => {
+    mainWindow = null;
+  });
+
   mainWindow.webContents.setWindowOpenHandler((details) => {
     shell.openExternal(details.url);
     return { action: 'deny' };
@@ -39,13 +109,6 @@ function createWindow(showOnReady = true): void {
   } else {
     mainWindow.loadFile(join(__dirname, '../renderer/index.html'));
   }
-}
-
-function applyLoginItemSettings(settings: { launchAtLogin: boolean; silentStartup: boolean }): void {
-  app.setLoginItemSettings({
-    openAtLogin: settings.launchAtLogin,
-    args: settings.launchAtLogin && settings.silentStartup ? [SILENT_STARTUP_ARG] : []
-  });
 }
 
 function registerIpc(service: CodexSwitchService): void {
@@ -66,7 +129,7 @@ function registerIpc(service: CodexSwitchService): void {
   ipcMain.handle('settings:get', () => service.getSettings());
   ipcMain.handle('settings:update', async (_event, patch) => {
     const settings = await service.updateSettings(patch);
-    applyLoginItemSettings(settings);
+    applySettings(settings);
     return settings;
   });
 }
@@ -74,15 +137,19 @@ function registerIpc(service: CodexSwitchService): void {
 app.whenReady().then(() => {
   const service = new CodexSwitchService(createRuntimePaths(app.getPath('userData')));
   registerIpc(service);
-  service.getSettings().then(applyLoginItemSettings).catch(console.error);
+  service.getSettings().then(applySettings).catch(console.error);
   createWindow(!process.argv.includes(SILENT_STARTUP_ARG));
 
   app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow();
-    else mainWindow?.show();
+    showMainWindow();
   });
 });
 
 app.on('window-all-closed', () => {
+  if (settingsSnapshot?.closeBehavior === 'minimizeToTray' && !isQuitting) return;
   if (process.platform !== 'darwin') app.quit();
+});
+
+app.on('before-quit', () => {
+  isQuitting = true;
 });

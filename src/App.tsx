@@ -9,12 +9,14 @@ import {
   RefreshCw,
   Save,
   Server,
+  Settings2,
   ShieldCheck,
   Zap
 } from 'lucide-react';
 import type { AppSettings, CurrentCodexState, Profile, ProfileInput, ProfileState } from './types';
 
-type Tab = 'account' | 'providers' | 'settings';
+type Page = 'profiles' | 'settings';
+type Tab = 'account' | 'providers';
 type Notice = { kind: 'success' | 'error' | 'info'; text: string } | null;
 type NameDialog =
   | { kind: 'import'; title: string; value: string }
@@ -33,6 +35,8 @@ const defaultSettings: AppSettings = {
   version: 1,
   launchAtLogin: false,
   silentStartup: false,
+  closeBehavior: 'quit',
+  themeMode: 'system',
   openAiAuthEnabled: false,
   openAiAuthProfileName: null
 };
@@ -147,6 +151,7 @@ export function App(): JSX.Element {
   const [activeDetected, setActiveDetected] = useState<string | null>(null);
   const [current, setCurrent] = useState<CurrentCodexState | null>(null);
   const [settings, setSettings] = useState<AppSettings>(defaultSettings);
+  const [page, setPage] = useState<Page>('profiles');
   const [tab, setTab] = useState<Tab>('account');
   const [notice, setNotice] = useState<Notice>(null);
   const [draft, setDraft] = useState<ProfileInput>(() => createDraft());
@@ -184,6 +189,10 @@ export function App(): JSX.Element {
   useEffect(() => {
     refresh().catch((error) => setNotice({ kind: 'error', text: String(error.message || error) }));
   }, []);
+
+  useEffect(() => {
+    document.documentElement.dataset.theme = settings.themeMode;
+  }, [settings.themeMode]);
 
   useEffect(() => {
     if (!selected) return;
@@ -242,6 +251,7 @@ export function App(): JSX.Element {
     setAuthText(stringifyJson(nextDraft.authJson));
     setSelectedName(null);
     setIsNew(true);
+    setPage('profiles');
     setTab('account');
   }
 
@@ -388,6 +398,9 @@ export function App(): JSX.Element {
 
   async function saveSettings(patch: Partial<Omit<AppSettings, 'version'>>): Promise<void> {
     const nextSettings = { ...settings, ...patch, version: 1 };
+    if (nextSettings.closeBehavior !== 'minimizeToTray') {
+      nextSettings.silentStartup = false;
+    }
     if (nextSettings.openAiAuthEnabled) {
       const officialProfiles = state.profiles.filter((profile) => profile.kind === 'official');
       if (officialProfiles.length === 0) {
@@ -468,6 +481,11 @@ export function App(): JSX.Element {
           导入当前配置
         </button>
 
+        <button className={`sidebarNavAction ${page === 'settings' ? 'active' : ''}`} disabled={busy} onClick={() => setPage('settings')}>
+          <Settings2 size={16} />
+          设置
+        </button>
+
         <div className="sectionTitle">Profiles</div>
         <div className="profileList">
           {state.profiles.length === 0 && <div className="empty">还没有 profile</div>}
@@ -475,7 +493,10 @@ export function App(): JSX.Element {
             <button
               className={`profileItem ${profile.name === selected?.name ? 'selected' : ''}`}
               key={profile.name}
-              onClick={() => setSelectedName(profile.name)}
+              onClick={() => {
+                setSelectedName(profile.name);
+                setPage('profiles');
+              }}
               onDoubleClick={() => requestSwitch(profile.name)}
               onContextMenu={(event) => {
                 event.preventDefault();
@@ -588,27 +609,154 @@ export function App(): JSX.Element {
       </aside>
 
       <section className="detailPane">
-        <header className="topbar">
-          <div>
-            <p className="eyeline">当前工作区</p>
-            <h2>{isNew ? '新建 Profile' : selected?.name || '选择一个 Profile'}</h2>
-          </div>
-          <div className="segments" role="tablist">
-            <button className={tab === 'account' ? 'active' : ''} onClick={() => setTab('account')}>
-              验证
-            </button>
-            <button className={tab === 'providers' ? 'active' : ''} onClick={() => setTab('providers')}>
-              供应商
-            </button>
-            <button className={tab === 'settings' ? 'active' : ''} onClick={() => setTab('settings')}>
-              设置
-            </button>
-          </div>
-        </header>
+        {page === 'settings' ? (
+          <>
+            <header className="topbar">
+              <div>
+                <p className="eyeline">应用配置</p>
+                <h2>设置</h2>
+              </div>
+            </header>
 
-        {notice && <div className={`notice ${notice.kind}`}>{notice.text}</div>}
+            {notice && <div className={`notice ${notice.kind}`}>{notice.text}</div>}
 
-        <div className="statusGrid">
+            <div className="editorPanel settingsPagePanel">
+              <div className="stackEditor">
+                <section>
+                  <div className="panelHeader">
+                    <ShieldCheck size={16} />
+                    <strong>应用设置</strong>
+                    <span>启动与验证</span>
+                  </div>
+                  <div className="settingsForm">
+                    <label className="toggleField">
+                      <span>
+                        <strong>开机自启动</strong>
+                        <small>登录系统后自动启动 Codex Switch</small>
+                      </span>
+                      <input
+                        type="checkbox"
+                        checked={settings.launchAtLogin}
+                        disabled={busy}
+                        onChange={(event) => void saveSettings({ launchAtLogin: event.target.checked })}
+                      />
+                    </label>
+                    <label className="settingsSelectField">
+                      <span>
+                        <strong>配色模式</strong>
+                        <small>选择浅色、深色，或跟随系统外观</small>
+                      </span>
+                      <select
+                        value={settings.themeMode}
+                        disabled={busy}
+                        onChange={(event) =>
+                          void saveSettings({
+                            themeMode: event.target.value as AppSettings['themeMode']
+                          })
+                        }
+                      >
+                        <option value="light">浅色</option>
+                        <option value="dark">深色</option>
+                        <option value="system">跟随系统</option>
+                      </select>
+                    </label>
+                    <label className="settingsSelectField">
+                      <span>
+                        <strong>关闭窗口行为</strong>
+                        <small>选择点击关闭按钮时退出应用，或隐藏到系统托盘继续后台运行</small>
+                      </span>
+                      <select
+                        value={settings.closeBehavior}
+                        disabled={busy}
+                        onChange={(event) =>
+                          void saveSettings({
+                            closeBehavior: event.target.value as AppSettings['closeBehavior']
+                          })
+                        }
+                      >
+                        <option value="quit">直接关闭</option>
+                        <option value="minimizeToTray">最小化到后台</option>
+                      </select>
+                    </label>
+                    <label className="toggleField">
+                      <span>
+                        <strong>静默启动</strong>
+                        <small>开机自启动时隐藏主窗口，并保留系统托盘入口</small>
+                      </span>
+                      <input
+                        type="checkbox"
+                        checked={settings.silentStartup}
+                        disabled={busy || !settings.launchAtLogin || settings.closeBehavior !== 'minimizeToTray'}
+                        onChange={(event) => void saveSettings({ silentStartup: event.target.checked })}
+                      />
+                    </label>
+                    <label className="toggleField">
+                      <span>
+                        <strong>OpenAI 官方账号验证</strong>
+                        <small>自定义 provider 切换时保留官方 auth.json 登录态</small>
+                      </span>
+                      <input
+                        type="checkbox"
+                        checked={settings.openAiAuthEnabled}
+                        disabled={busy || officialProfiles.length === 0}
+                        onChange={(event) =>
+                          void saveSettings({
+                            openAiAuthEnabled: event.target.checked,
+                            openAiAuthProfileName: event.target.checked ? selectedOpenAiAuthProfile || null : settings.openAiAuthProfileName
+                          })
+                        }
+                      />
+                    </label>
+                    {officialProfiles.length === 0 ? (
+                      <div className="inlineError">需要先创建或导入一个 Official OpenAI OAuth profile，才能启用官方账号验证。</div>
+                    ) : (
+                      settings.openAiAuthEnabled && (
+                        <>
+                          <label>
+                            官方账号凭证
+                            <select
+                              value={selectedOpenAiAuthProfile}
+                              disabled={busy}
+                              onChange={(event) => void saveSettings({ openAiAuthProfileName: event.target.value })}
+                            >
+                              {officialProfiles.map((profile) => (
+                                <option key={profile.name} value={profile.name}>
+                                  {profile.name}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+                          <div className="settingsHint">
+                            切换自定义 profile 时不会覆盖 auth.json；自定义 OPENAI_API_KEY 会写入 provider 的 experimental_bearer_token。
+                          </div>
+                        </>
+                      )
+                    )}
+                  </div>
+                </section>
+              </div>
+            </div>
+          </>
+        ) : (
+          <>
+            <header className="topbar">
+              <div>
+                <p className="eyeline">当前工作区</p>
+                <h2>{isNew ? '新建 Profile' : selected?.name || '选择一个 Profile'}</h2>
+              </div>
+              <div className="segments" role="tablist">
+                <button className={tab === 'account' ? 'active' : ''} onClick={() => setTab('account')}>
+                  验证
+                </button>
+                <button className={tab === 'providers' ? 'active' : ''} onClick={() => setTab('providers')}>
+                  供应商
+                </button>
+              </div>
+            </header>
+
+            {notice && <div className={`notice ${notice.kind}`}>{notice.text}</div>}
+
+            <div className="statusGrid">
           <div>
             <span>检测激活</span>
             <strong>{activeDetected || '未匹配'}</strong>
@@ -700,7 +848,7 @@ export function App(): JSX.Element {
                 {authEditorOpen && <textarea value={authText} spellCheck={false} onChange={(event) => setAuthText(event.target.value)} />}
               </section>
             </div>
-          ) : tab === 'providers' ? (
+          ) : (
             <div className="stackEditor">
               <section>
                 <div className="panelHeader">
@@ -771,84 +919,6 @@ export function App(): JSX.Element {
                 )}
               </section>
             </div>
-          ) : (
-            <div className="stackEditor">
-              <section>
-                <div className="panelHeader">
-                  <ShieldCheck size={16} />
-                  <strong>应用设置</strong>
-                  <span>启动与验证</span>
-                </div>
-                <div className="settingsForm">
-                  <label className="toggleField">
-                    <span>
-                      <strong>开机自启动</strong>
-                      <small>登录系统后自动启动 Codex Switch</small>
-                    </span>
-                    <input
-                      type="checkbox"
-                      checked={settings.launchAtLogin}
-                      disabled={busy}
-                      onChange={(event) => void saveSettings({ launchAtLogin: event.target.checked })}
-                    />
-                  </label>
-                  <label className="toggleField">
-                    <span>
-                      <strong>静默启动</strong>
-                      <small>仅开机自启动时隐藏主窗口</small>
-                    </span>
-                    <input
-                      type="checkbox"
-                      checked={settings.silentStartup}
-                      disabled={busy || !settings.launchAtLogin}
-                      onChange={(event) => void saveSettings({ silentStartup: event.target.checked })}
-                    />
-                  </label>
-                  <label className="toggleField">
-                    <span>
-                      <strong>OpenAI 官方账号验证</strong>
-                      <small>自定义 provider 切换时保留官方 auth.json 登录态</small>
-                    </span>
-                    <input
-                      type="checkbox"
-                      checked={settings.openAiAuthEnabled}
-                      disabled={busy || officialProfiles.length === 0}
-                      onChange={(event) =>
-                        void saveSettings({
-                          openAiAuthEnabled: event.target.checked,
-                          openAiAuthProfileName: event.target.checked ? selectedOpenAiAuthProfile || null : settings.openAiAuthProfileName
-                        })
-                      }
-                    />
-                  </label>
-                  {officialProfiles.length === 0 ? (
-                    <div className="inlineError">需要先创建或导入一个 Official OpenAI OAuth profile，才能启用官方账号验证。</div>
-                  ) : (
-                    settings.openAiAuthEnabled && (
-                      <>
-                        <label>
-                          官方账号凭证
-                          <select
-                            value={selectedOpenAiAuthProfile}
-                            disabled={busy}
-                            onChange={(event) => void saveSettings({ openAiAuthProfileName: event.target.value })}
-                          >
-                            {officialProfiles.map((profile) => (
-                              <option key={profile.name} value={profile.name}>
-                                {profile.name}
-                              </option>
-                            ))}
-                          </select>
-                        </label>
-                        <div className="settingsHint">
-                          切换自定义 profile 时不会覆盖 auth.json；自定义 OPENAI_API_KEY 会写入 provider 的 experimental_bearer_token。
-                        </div>
-                      </>
-                    )
-                  )}
-                </div>
-              </section>
-            </div>
           )}
         </div>
 
@@ -863,6 +933,8 @@ export function App(): JSX.Element {
             <RefreshCw size={18} />
           </button>
         </div>
+          </>
+        )}
       </section>
     </main>
   );

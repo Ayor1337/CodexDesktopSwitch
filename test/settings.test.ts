@@ -26,6 +26,8 @@ describe('settings store', () => {
     await updateSettings(paths, {
       launchAtLogin: true,
       silentStartup: true,
+      closeBehavior: 'minimizeToTray',
+      themeMode: 'dark',
       openAiAuthEnabled: true,
       openAiAuthProfileName: 'openai'
     });
@@ -34,8 +36,30 @@ describe('settings store', () => {
       version: 1,
       launchAtLogin: true,
       silentStartup: true,
+      closeBehavior: 'minimizeToTray',
+      themeMode: 'dark',
       openAiAuthEnabled: true,
       openAiAuthProfileName: 'openai'
+    });
+  });
+
+  it('normalizes invalid theme mode to system', async () => {
+    await fs.mkdir(paths.userData, { recursive: true });
+    await fs.writeFile(paths.settings, JSON.stringify({ ...DEFAULT_SETTINGS, themeMode: 'sepia' }));
+
+    await expect(loadSettings(paths)).resolves.toEqual(DEFAULT_SETTINGS);
+  });
+
+  it('disables silent startup when close behavior is quit', async () => {
+    await updateSettings(paths, {
+      launchAtLogin: true,
+      silentStartup: true,
+      closeBehavior: 'quit'
+    });
+
+    await expect(loadSettings(paths)).resolves.toEqual({
+      ...DEFAULT_SETTINGS,
+      launchAtLogin: true
     });
   });
 

@@ -1,4 +1,6 @@
 export type ProfileKind = 'official' | 'custom';
+export type CloseBehavior = 'quit' | 'minimizeToTray';
+export type ThemeMode = 'light' | 'dark' | 'system';
 
 export type AuthJson = Record<string, unknown>;
 export type ProviderBlock = Record<string, unknown>;
@@ -31,6 +33,8 @@ export interface AppSettings {
   version: 1;
   launchAtLogin: boolean;
   silentStartup: boolean;
+  closeBehavior: CloseBehavior;
+  themeMode: ThemeMode;
   openAiAuthEnabled: boolean;
   openAiAuthProfileName: string | null;
 }

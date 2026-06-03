@@ -7,6 +7,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
   version: 1,
   launchAtLogin: false,
   silentStartup: false,
+  closeBehavior: 'quit',
+  themeMode: 'system',
   openAiAuthEnabled: false,
   openAiAuthProfileName: null
 };
@@ -17,10 +19,14 @@ function normalizeSettings(value: unknown): AppSettings {
   }
   const source = value as Partial<AppSettings>;
   if (source.version !== 1) throw new Error('settings.json 版本无效');
+  const closeBehavior = source.closeBehavior === 'minimizeToTray' ? 'minimizeToTray' : 'quit';
+  const themeMode = source.themeMode === 'light' || source.themeMode === 'dark' ? source.themeMode : 'system';
   return {
     version: 1,
     launchAtLogin: source.launchAtLogin === true,
-    silentStartup: source.silentStartup === true,
+    silentStartup: closeBehavior === 'minimizeToTray' && source.silentStartup === true,
+    closeBehavior,
+    themeMode,
     openAiAuthEnabled: source.openAiAuthEnabled === true,
     openAiAuthProfileName:
       typeof source.openAiAuthProfileName === 'string' && source.openAiAuthProfileName.length > 0
