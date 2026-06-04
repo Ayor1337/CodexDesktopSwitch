@@ -1,4 +1,6 @@
 import fs from 'node:fs/promises';
+import http from 'node:http';
+import type { AddressInfo } from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -18,8 +20,29 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
+  await service.shutdown();
   await fs.rm(root, { recursive: true, force: true });
 });
+
+function startUpstream(): Promise<{ url: string; close: () => Promise<void> }> {
+  return new Promise((resolve) => {
+    const server = http.createServer((_req, res) => {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({}));
+    });
+    server.listen(0, '127.0.0.1', () => {
+      const port = (server.address() as AddressInfo).port;
+      resolve({
+        url: `http://127.0.0.1:${port}/v1`,
+        close: () =>
+          new Promise<void>((r) => {
+            server.close(() => r());
+            server.closeAllConnections?.();
+          })
+      });
+    });
+  });
+}
 
 describe('CodexSwitchService', () => {
   it('switches official profile and creates one-time backup', async () => {
@@ -178,6 +201,56 @@ describe('CodexSwitchService', () => {
     const auth = JSON.parse(await fs.readFile(paths.auth, 'utf8'));
 
     expect(auth).toEqual({ OPENAI_API_KEY: 'b-key' });
+  });
+
+  it('rewrites base_url to the local proxy when useChatCompletionsProxy is set, and restores on switch-away', async () => {
+    const upstream = await startUpstream();
+    try {
+      await service.createProfile({
+        name: 'translated',
+        kind: 'custom',
+        authJson: { OPENAI_API_KEY: 'upstream-key' },
+        providerName: 'translated',
+        providerBlock: { base_url: upstream.url, wire_api: 'chat' },
+        useChatCompletionsProxy: true
+      });
+      await service.createProfile({
+        name: 'plain',
+        kind: 'custom',
+        authJson: { OPENAI_API_KEY: 'plain-key' },
+        providerName: 'plain',
+        providerBlock: { base_url: upstream.url, wire_api: 'responses' }
+      });
+
+      await service.switchProfile('translated');
+      let config = TOML.parse(await fs.readFile(paths.config, 'utf8'));
+      let provider = (config.model_providers as Record<string, Record<string, unknown>>).translated;
+      const proxyStatus = service.getProxyStatus();
+      expect(proxyStatus.running).toBe(true);
+      expect(proxyStatus.profileName).toBe('translated');
+      expect(provider.base_url).toBe(`http://127.0.0.1:${proxyStatus.port}/v1`);
+      expect(provider.wire_api).toBe('responses');
+
+      await service.switchProfile('plain');
+      config = TOML.parse(await fs.readFile(paths.config, 'utf8'));
+      provider = (config.model_providers as Record<string, Record<string, unknown>>).plain;
+      expect(provider.base_url).toBe(upstream.url);
+      expect(service.getProxyStatus()).toEqual({ running: false, port: null, profileName: null });
+    } finally {
+      await upstream.close();
+    }
+  });
+
+  it('throws if proxy is requested but base_url or API key is missing', async () => {
+    await service.createProfile({
+      name: 'bad',
+      kind: 'custom',
+      authJson: { OPENAI_API_KEY: '' },
+      providerName: 'bad',
+      providerBlock: { base_url: 'https://example.com/v1' },
+      useChatCompletionsProxy: true
+    });
+    await expect(service.switchProfile('bad')).rejects.toThrow(/OPENAI_API_KEY 为空/);
   });
 
   it('restores latest backup', async () => {

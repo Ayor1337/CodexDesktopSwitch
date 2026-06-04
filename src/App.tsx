@@ -6,6 +6,7 @@ import {
   Copy,
   Download,
   FileJson,
+  HelpCircle,
   KeyRound,
   Layers,
   Minus,
@@ -19,7 +20,7 @@ import {
   X,
   Zap
 } from 'lucide-react';
-import type { AppSettings, CurrentCodexState, Profile, ProfileInput, ProfileState } from './types';
+import type { AppSettings, CurrentCodexState, Profile, ProfileInput, ProfileState, ProxyStatus } from './types';
 
 type Page = 'profiles' | 'settings';
 type Tab = 'account' | 'providers';
@@ -140,6 +141,13 @@ function describeAuth(authJson: Record<string, unknown>): string {
   return '自定义凭证';
 }
 
+function withProviderDefaults(block: Record<string, unknown> | undefined): Record<string, unknown> {
+  const next = { ...(block || {}) };
+  if (next.wire_api === undefined) next.wire_api = 'responses';
+  if (next.requires_openai_auth === undefined) next.requires_openai_auth = true;
+  return next;
+}
+
 function createDraft(profile?: Profile): ProfileInput {
   if (!profile) return { ...emptyProfile, authJson: { ...emptyProfile.authJson }, providerBlock: {} };
   return {
@@ -147,7 +155,9 @@ function createDraft(profile?: Profile): ProfileInput {
     kind: profile.kind,
     authJson: profile.authJson,
     providerName: profile.providerName || '',
-    providerBlock: profile.providerBlock || {}
+    providerBlock: profile.kind === 'custom' ? withProviderDefaults(profile.providerBlock) : profile.providerBlock || {},
+    useChatCompletionsProxy: profile.useChatCompletionsProxy ?? false,
+    model: profile.model ?? null
   };
 }
 
@@ -172,6 +182,7 @@ export function App(): JSX.Element {
   const [providerEditorOpen, setProviderEditorOpen] = useState(false);
   const [providerParseError, setProviderParseError] = useState<string | null>(null);
   const [focusedSecretPath, setFocusedSecretPath] = useState<string | null>(null);
+  const [proxyStatus, setProxyStatus] = useState<ProxyStatus>({ running: false, port: null, profileName: null });
   const [isMaximized, setIsMaximized] = useState(false);
 
   const selected = useMemo(
@@ -180,16 +191,18 @@ export function App(): JSX.Element {
   );
 
   async function refresh(): Promise<void> {
-    const [profiles, codexState, detected, appSettings] = await Promise.all([
+    const [profiles, codexState, detected, appSettings, proxy] = await Promise.all([
       window.codexSwitch.profiles.list(),
       window.codexSwitch.codex.readCurrent(),
       window.codexSwitch.codex.detectActiveProfile(),
-      window.codexSwitch.settings.get()
+      window.codexSwitch.settings.get(),
+      window.codexSwitch.codex.proxyStatus()
     ]);
     setState(profiles);
     setCurrent(codexState);
     setActiveDetected(detected);
     setSettings(appSettings);
+    setProxyStatus(proxy);
     setSelectedName((name) => name || profiles.profiles[0]?.name || null);
   }
 
@@ -263,13 +276,15 @@ export function App(): JSX.Element {
     const sourceAuth = hasCurrentAuth
       ? (structuredClone(current!.authJson) as Record<string, unknown>)
       : { ...emptyProfile.authJson };
+    const currentModel = typeof current?.config?.model === 'string' ? (current.config.model as string) : null;
 
     const nextDraft: ProfileInput = {
       name: '',
       kind: 'official',
       authJson: sourceAuth,
       providerName: '',
-      providerBlock: {}
+      providerBlock: {},
+      model: currentModel
     };
 
     setDraft(nextDraft);
@@ -314,7 +329,9 @@ export function App(): JSX.Element {
       ...draft,
       authJson,
       providerName: draft.kind === 'custom' ? draft.providerName : undefined,
-      providerBlock
+      providerBlock: draft.kind === 'custom' ? withProviderDefaults(providerBlock) : providerBlock,
+      useChatCompletionsProxy: draft.kind === 'custom' ? !!draft.useChatCompletionsProxy : undefined,
+      model: draft.model && draft.model.length > 0 ? draft.model : null
     };
   }
 
@@ -446,9 +463,10 @@ export function App(): JSX.Element {
   const authObject = parseJsonObject(authText);
   const providerBlock = draft.providerBlock || {};
   const providerBaseUrl = readPath(providerBlock, ['base_url']);
-  const providerWireApi = readPath(providerBlock, ['wire_api']);
+  const providerWireApi = readPath(providerBlock, ['wire_api']) || 'responses';
   const providerWireName = readPath(providerBlock, ['name']);
-  const providerRequiresOpenAiAuth = readBool(providerBlock, ['requires_openai_auth']);
+  const providerRequiresOpenAiAuth =
+    providerBlock.requires_openai_auth === undefined ? true : readBool(providerBlock, ['requires_openai_auth']);
   const activeName = activeDetected || state.active;
   const officialProfiles = state.profiles.filter((profile) => profile.kind === 'official');
   const selectedOpenAiAuthProfile =
@@ -775,6 +793,15 @@ export function App(): JSX.Element {
                   <span>当前 provider</span>
                   <strong>{current?.providerName || 'Official OpenAI OAuth'}</strong>
                 </div>
+                {proxyStatus.running && (
+                  <div>
+                    <span>翻译代理</span>
+                    <strong>
+                      127.0.0.1:{proxyStatus.port}
+                      {proxyStatus.profileName ? ` · ${proxyStatus.profileName}` : ''}
+                    </strong>
+                  </div>
+                )}
               </div>
 
               <div className="workspaceCards">
@@ -817,6 +844,18 @@ export function App(): JSX.Element {
                     </label>
                   </div>
                 )}
+                <div className="workspaceCard">
+                  <label>
+                    Model
+                    <input
+                      value={draft.model ?? ''}
+                      placeholder="留空则不写入 config.toml model 字段"
+                      onChange={(event) =>
+                        setDraft({ ...draft, model: event.target.value.length > 0 ? event.target.value : null })
+                      }
+                    />
+                  </label>
+                </div>
               </div>
 
               <div className="editorPanel">
@@ -938,6 +977,33 @@ export function App(): JSX.Element {
                             type="checkbox"
                             checked={providerRequiresOpenAiAuth}
                             onChange={(event) => updateProviderField(['requires_openai_auth'], event.target.checked)}
+                          />
+                        </label>
+                        <label className="checkboxField">
+                          <span className="labelText">
+                            将上游 /chat/completions 翻译为 Responses API
+                            <span
+                              className="hintTrigger"
+                              tabIndex={0}
+                              role="button"
+                              aria-label="说明"
+                              onClick={(event) => {
+                                event.preventDefault();
+                                event.stopPropagation();
+                              }}
+                            >
+                              <HelpCircle size={13} aria-hidden />
+                              <span className="hintPopover" role="tooltip">
+                                激活该 profile 时会启动本地翻译代理；
+                                上游 base_url 仍保存在 profile 中，
+                                Codex 实际访问 http://127.0.0.1:&lt;port&gt;/v1。
+                              </span>
+                            </span>
+                          </span>
+                          <input
+                            type="checkbox"
+                            checked={!!draft.useChatCompletionsProxy}
+                            onChange={(event) => setDraft({ ...draft, useChatCompletionsProxy: event.target.checked })}
                           />
                         </label>
                       </div>

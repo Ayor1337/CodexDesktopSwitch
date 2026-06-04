@@ -25,6 +25,12 @@ export function validateProfileInput(input: ProfileInput): void {
       throw new Error('自定义 profile 必须包含 providerBlock 对象');
     }
   }
+  if (input.useChatCompletionsProxy !== undefined && typeof input.useChatCompletionsProxy !== 'boolean') {
+    throw new Error('useChatCompletionsProxy 必须是布尔值');
+  }
+  if (input.model !== undefined && input.model !== null && typeof input.model !== 'string') {
+    throw new Error('model 必须是字符串或 null');
+  }
 }
 
 export function emptyState(): ProfileState {

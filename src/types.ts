@@ -11,6 +11,8 @@ export interface Profile {
   authJson: AuthJson;
   providerName?: string;
   providerBlock?: ProviderBlock;
+  useChatCompletionsProxy?: boolean;
+  model?: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -21,6 +23,14 @@ export interface ProfileInput {
   authJson: AuthJson;
   providerName?: string;
   providerBlock?: ProviderBlock;
+  useChatCompletionsProxy?: boolean;
+  model?: string | null;
+}
+
+export interface ProxyStatus {
+  running: boolean;
+  port: number | null;
+  profileName: string | null;
 }
 
 export interface ProfileState {
@@ -85,6 +95,7 @@ export interface AppApi {
     parseToml: (text: string) => Promise<ProviderBlock>;
     stringifyToml: (value: ProviderBlock) => Promise<string>;
     restart: () => Promise<RestartCodexResult>;
+    proxyStatus: () => Promise<ProxyStatus>;
   };
   backup: {
     list: () => Promise<BackupEntry[]>;
