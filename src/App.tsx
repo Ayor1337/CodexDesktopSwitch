@@ -17,6 +17,7 @@ import {
   Settings2,
   ShieldCheck,
   Square,
+  Wrench,
   X,
   Zap
 } from 'lucide-react';
@@ -178,6 +179,7 @@ export function App(): JSX.Element {
   const [contextMenu, setContextMenu] = useState<{ name: string; x: number; y: number } | null>(null);
   const [nameDialog, setNameDialog] = useState<NameDialog | null>(null);
   const [switchDialog, setSwitchDialog] = useState<SwitchDialog>(null);
+  const [repairDialogOpen, setRepairDialogOpen] = useState(false);
   const [authEditorOpen, setAuthEditorOpen] = useState(false);
   const [providerEditorOpen, setProviderEditorOpen] = useState(false);
   const [providerParseError, setProviderParseError] = useState<string | null>(null);
@@ -458,6 +460,14 @@ export function App(): JSX.Element {
 
     const saved = await run(() => window.codexSwitch.settings.update(nextSettings), '设置已保存');
     if (saved) setSettings(saved);
+  }
+
+  async function repairComputerUseCache(): Promise<void> {
+    const result = await run(
+      () => window.codexSwitch.codex.repairComputerUseCache(),
+      '修复已完成：已备份 config.toml 并重命名 bundled 插件缓存。请手动重启 Codex，然后在插件设置中重新开启 Browser、Chrome 和 Computer Use。'
+    );
+    if (result) setRepairDialogOpen(false);
   }
 
   const authObject = parseJsonObject(authText);
@@ -755,6 +765,30 @@ export function App(): JSX.Element {
                           </>
                         )
                       )}
+                    </div>
+                  </section>
+                  <section>
+                    <div className="panelHeader">
+                      <Wrench size={16} />
+                      <strong>维护</strong>
+                      <span>Codex 插件缓存</span>
+                    </div>
+                    <div className="settingsForm">
+                      <div className="settingsActionField">
+                        <span>
+                          <strong>修复 Computer Use 插件缓存</strong>
+                          <small>
+                            备份 config.toml，重置 openai-bundled 缓存，并把 Browser、Chrome、Computer Use 插件设为关闭。
+                          </small>
+                        </span>
+                        <button type="button" className="ghostBtn" disabled={busy} onClick={() => setRepairDialogOpen(true)}>
+                          <Wrench size={14} />
+                          <span>修复</span>
+                        </button>
+                      </div>
+                      <div className="settingsHint">
+                        完成后需要手动重启 Codex，并在 Codex 插件设置中自行重新开启被关闭的插件。
+                      </div>
                     </div>
                   </section>
                 </div>
@@ -1098,6 +1132,33 @@ export function App(): JSX.Element {
               </button>
               <button type="submit" disabled={busy}>
                 确认切换
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {repairDialogOpen && (
+        <div className="dialogBackdrop" onClick={() => setRepairDialogOpen(false)}>
+          <form
+            className="nameDialog"
+            onClick={(event) => event.stopPropagation()}
+            onSubmit={(event) => {
+              event.preventDefault();
+              void repairComputerUseCache();
+            }}
+          >
+            <h3>修复 Computer Use 插件缓存？</h3>
+            <p>
+              此操作会备份 <code>~/.codex/config.toml</code>，重命名 openai-bundled 插件缓存目录，并将 Browser、Chrome、Computer
+              Use 三个 bundled 插件写为 disabled。完成后请手动重启 Codex，再自行重新打开被关闭的插件。
+            </p>
+            <div className="dialogActions">
+              <button type="button" disabled={busy} onClick={() => setRepairDialogOpen(false)}>
+                取消
+              </button>
+              <button type="submit" disabled={busy}>
+                确认修复
               </button>
             </div>
           </form>

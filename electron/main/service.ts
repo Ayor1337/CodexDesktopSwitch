@@ -7,6 +7,7 @@ import { backupOnceIfNeeded, listBackups, restoreBackup } from './backup';
 import { loadSettings, updateSettings } from './settings';
 import { deepEqual } from './deepEqual';
 import { getProxyStatus, startProxy, stopProxy } from './proxy';
+import { repairComputerUseCache } from './computerUseCache';
 
 export class CodexSwitchService {
   constructor(private readonly paths: RuntimePaths) {}
@@ -83,6 +84,10 @@ export class CodexSwitchService {
 
   getProxyStatus(): ProxyStatus {
     return getProxyStatus();
+  }
+
+  async repairComputerUseCache() {
+    return repairComputerUseCache(this.paths);
   }
 
   async shutdown(): Promise<void> {

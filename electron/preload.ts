@@ -17,7 +17,8 @@ const api: AppApi = {
     parseToml: (text: string) => ipcRenderer.invoke('codex:parseToml', text),
     stringifyToml: (value: Record<string, unknown>) => ipcRenderer.invoke('codex:stringifyToml', value),
     restart: () => ipcRenderer.invoke('codex:restart'),
-    proxyStatus: () => ipcRenderer.invoke('codex:proxyStatus')
+    proxyStatus: () => ipcRenderer.invoke('codex:proxyStatus'),
+    repairComputerUseCache: () => ipcRenderer.invoke('codex:repairComputerUseCache')
   },
   backup: {
     list: () => ipcRenderer.invoke('backup:list'),

@@ -79,6 +79,11 @@ export interface RestartCodexResult {
   executablePath: string | null;
 }
 
+export interface RepairComputerUseCacheResult {
+  backupPath: string;
+  renamedPaths: string[];
+}
+
 export interface AppApi {
   profiles: {
     list: () => Promise<ProfileState>;
@@ -96,6 +101,7 @@ export interface AppApi {
     stringifyToml: (value: ProviderBlock) => Promise<string>;
     restart: () => Promise<RestartCodexResult>;
     proxyStatus: () => Promise<ProxyStatus>;
+    repairComputerUseCache: () => Promise<RepairComputerUseCacheResult>;
   };
   backup: {
     list: () => Promise<BackupEntry[]>;
