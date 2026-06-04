@@ -1,6 +1,6 @@
 {
   "name": "codex-switch-electron",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
   "description": "Electron desktop app for switching Codex auth and provider profiles.",
   "type": "module",
