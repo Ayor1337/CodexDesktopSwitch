@@ -1,16 +1,22 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { ChangeEvent } from 'react';
 import {
+  Archive,
   CheckCircle2,
+  Copy,
   Download,
   FileJson,
   KeyRound,
+  Layers,
+  Minus,
   Plus,
   RefreshCw,
   Save,
   Server,
   Settings2,
   ShieldCheck,
+  Square,
+  X,
   Zap
 } from 'lucide-react';
 import type { AppSettings, CurrentCodexState, Profile, ProfileInput, ProfileState, ProxyStatus } from './types';
@@ -129,9 +135,9 @@ function maskSecrets(value: unknown, parentKey = ''): unknown {
 }
 
 function describeAuth(authJson: Record<string, unknown>): string {
-  if (typeof authJson.OPENAI_API_KEY === 'string' && authJson.OPENAI_API_KEY) return 'API Key';
-  if (authJson.tokens && typeof authJson.tokens === 'object') return 'OAuth Tokens';
-  return '自定义 JSON';
+  if (typeof authJson.OPENAI_API_KEY === 'string' && authJson.OPENAI_API_KEY) return 'API 密钥';
+  if (authJson.tokens && typeof authJson.tokens === 'object') return 'OAuth 令牌';
+  return '自定义凭证';
 }
 
 function createDraft(profile?: Profile): ProfileInput {
@@ -168,6 +174,7 @@ export function App(): JSX.Element {
   const [providerParseError, setProviderParseError] = useState<string | null>(null);
   const [focusedSecretPath, setFocusedSecretPath] = useState<string | null>(null);
   const [proxyStatus, setProxyStatus] = useState<ProxyStatus>({ running: false, port: null, profileName: null });
+  const [isMaximized, setIsMaximized] = useState(false);
 
   const selected = useMemo(
     () => state.profiles.find((profile) => profile.name === selectedName) || null,
@@ -197,6 +204,13 @@ export function App(): JSX.Element {
   useEffect(() => {
     document.documentElement.dataset.theme = settings.themeMode;
   }, [settings.themeMode]);
+
+  useEffect(() => {
+    if (!window.codexSwitch?.window) return;
+    window.codexSwitch.window.isMaximized().then(setIsMaximized).catch(() => undefined);
+    const off = window.codexSwitch.window.onMaximizeChange(setIsMaximized);
+    return () => off();
+  }, []);
 
   useEffect(() => {
     if (!selected) return;
@@ -249,10 +263,22 @@ export function App(): JSX.Element {
   }, [draft.kind, draft.providerName, providerText]);
 
   function startCreate(): void {
-    const nextDraft = createDraft();
-    setProviderText('');
+    const hasCurrentAuth = !!current?.authJson && Object.keys(current.authJson).length > 0;
+    const sourceAuth = hasCurrentAuth
+      ? (structuredClone(current!.authJson) as Record<string, unknown>)
+      : { ...emptyProfile.authJson };
+
+    const nextDraft: ProfileInput = {
+      name: '',
+      kind: 'official',
+      authJson: sourceAuth,
+      providerName: '',
+      providerBlock: {}
+    };
+
     setDraft(nextDraft);
-    setAuthText(stringifyJson(nextDraft.authJson));
+    setAuthText(stringifyJson(sourceAuth));
+    setProviderText('');
     setSelectedName(null);
     setIsNew(true);
     setPage('profiles');
@@ -281,6 +307,7 @@ export function App(): JSX.Element {
     }
 
     setDraft({ ...draft, kind, providerName: undefined, providerBlock: undefined });
+    setTab('account');
   }
 
   async function parseDraft(): Promise<ProfileInput> {
@@ -465,504 +492,616 @@ export function App(): JSX.Element {
     void window.codexSwitch.codex.stringifyToml(wrapProviderConfig(draft.providerName || 'custom-provider', nextBlock)).then(setProviderText);
   }
 
+  function focusActiveProfile(): void {
+    if (!activeName) return;
+    setSelectedName(activeName);
+    setPage('profiles');
+  }
+
+  const activeChipLabel = activeName || '未匹配';
+  const activeChipKind = activeName ? 'live' : 'idle';
+
   return (
-    <main className="appShell" onClick={() => setContextMenu(null)}>
-      <aside className="sidebar">
-        <div className="brand">
-          <div className="brandMark">CS</div>
-          <div>
-            <h1>Codex Switch</h1>
-            <p>账号与 Provider 切换</p>
-          </div>
+    <div className="appRoot" onClick={() => setContextMenu(null)}>
+      <header className="titleBar">
+        <div className="titleBrand">
+          <span className="brandMark">CS</span>
+          <span className="brandWord">Codex Switch</span>
         </div>
-
-        <button className="primaryAction" disabled={busy} onClick={startCreate}>
-          <Plus size={16} />
-          新建 Profile
+        <button
+          type="button"
+          className={`activeChip ${activeChipKind}`}
+          onClick={focusActiveProfile}
+          title={activeName ? `当前激活：${activeName}` : '尚未匹配到任何 profile'}
+        >
+          <span className="activePulse" />
+          <span className="activeChipText">
+            <em>当前</em>
+            <strong>{activeChipLabel}</strong>
+          </span>
+          {current?.providerName && <span className="activeChipMeta">· {current.providerName}</span>}
         </button>
-
-        <button className="secondaryAction" disabled={busy} onClick={importCurrent}>
-          <Download size={16} />
-          导入当前配置
-        </button>
-
-        <button className={`sidebarNavAction ${page === 'settings' ? 'active' : ''}`} disabled={busy} onClick={() => setPage('settings')}>
-          <Settings2 size={16} />
-          设置
-        </button>
-
-        <div className="sectionTitle">Profiles</div>
-        <div className="profileList">
-          {state.profiles.length === 0 && <div className="empty">还没有 profile</div>}
-          {state.profiles.map((profile) => (
-            <button
-              className={`profileItem ${profile.name === selected?.name ? 'selected' : ''}`}
-              key={profile.name}
-              onClick={() => {
-                setSelectedName(profile.name);
-                setPage('profiles');
-              }}
-              onDoubleClick={() => requestSwitch(profile.name)}
-              onContextMenu={(event) => {
-                event.preventDefault();
-                setSelectedName(profile.name);
-                setContextMenu({ name: profile.name, x: event.clientX, y: event.clientY });
-              }}
-            >
-              <span className="profileIcon">{profile.kind === 'official' ? <KeyRound size={16} /> : <Server size={16} />}</span>
-              <span className="profileText">
-                <strong>{profile.name}</strong>
-                <small>{profile.kind === 'official' ? 'Official OpenAI OAuth' : profile.providerName}</small>
-              </span>
-              {profile.name === activeName && <span className="activeDot" title="当前激活" />}
-            </button>
-          ))}
-        </div>
-
-        {contextMenu && (
-          <div
-            className="contextMenu"
-            style={{ left: contextMenu.x, top: contextMenu.y }}
-            onClick={(event) => event.stopPropagation()}
+        <div className="titleControls">
+          <button
+            type="button"
+            className="winCtrl"
+            aria-label="最小化"
+            onClick={() => void window.codexSwitch.window.minimize()}
           >
-            <button
-              onClick={() => {
-                const name = contextMenu.name;
-                setContextMenu(null);
-                renameProfile(name);
-              }}
-            >
-              重命名
-            </button>
-            <button
-              className="danger"
-              onClick={() => {
-                const name = contextMenu.name;
-                setContextMenu(null);
-                void deleteProfile(name);
-              }}
-            >
-              删除
-            </button>
-          </div>
-        )}
-
-        {switchDialog && (
-          <div className="dialogBackdrop" onClick={() => setSwitchDialog(null)}>
-            <form
-              className="nameDialog"
-              onClick={(event) => event.stopPropagation()}
-              onSubmit={(event) => {
-                event.preventDefault();
-                void confirmSwitch();
-              }}
-            >
-              <h3>确认切换 Profile</h3>
-              <p>
-                将切换到 <strong>{switchDialog.profileName}</strong>。确认后会关闭 `codex` 和 `extension-host` 相关进程，然后重新启动
-                `codex`，用于重新加载新的 auth/config。
-                若已开启 OpenAI 官方账号验证，切换自定义 profile 时不会覆盖 auth.json。
-              </p>
-              <div className="dialogActions">
-                <button type="button" disabled={busy} onClick={() => setSwitchDialog(null)}>
-                  取消
-                </button>
-                <button type="submit" disabled={busy}>
-                  确认切换
-                </button>
-              </div>
-            </form>
-          </div>
-        )}
-
-        {nameDialog && (
-          <div className="dialogBackdrop" onClick={() => setNameDialog(null)}>
-            <form
-              className="nameDialog"
-              onClick={(event) => event.stopPropagation()}
-              onSubmit={(event) => {
-                event.preventDefault();
-                void submitNameDialog();
-              }}
-            >
-              <h3>{nameDialog.title}</h3>
-              <p>
-                {nameDialog.kind === 'import'
-                  ? '读取当前 ~/.codex/auth.json 和 ~/.codex/config.toml，并保存为一个新的 profile。'
-                  : '修改 profile 名称，不会改变 auth.json 或 provider 内容。'}
-              </p>
-              <label>
-                Profile 名称
-                <input
-                  autoFocus
-                  value={nameDialog.value}
-                  onChange={(event) => setNameDialog({ ...nameDialog, value: event.target.value })}
-                />
-              </label>
-              <div className="dialogActions">
-                <button type="button" disabled={busy} onClick={() => setNameDialog(null)}>
-                  取消
-                </button>
-                <button type="submit" disabled={busy}>
-                  确认
-                </button>
-              </div>
-            </form>
-          </div>
-        )}
-
-      </aside>
-
-      <section className="detailPane">
-        {page === 'settings' ? (
-          <>
-            <header className="topbar">
-              <div>
-                <p className="eyeline">应用配置</p>
-                <h2>设置</h2>
-              </div>
-            </header>
-
-            {notice && <div className={`notice ${notice.kind}`}>{notice.text}</div>}
-
-            <div className="editorPanel settingsPagePanel">
-              <div className="stackEditor">
-                <section>
-                  <div className="panelHeader">
-                    <ShieldCheck size={16} />
-                    <strong>应用设置</strong>
-                    <span>启动与验证</span>
-                  </div>
-                  <div className="settingsForm">
-                    <label className="toggleField">
-                      <span>
-                        <strong>开机自启动</strong>
-                        <small>登录系统后自动启动 Codex Switch</small>
-                      </span>
-                      <input
-                        type="checkbox"
-                        checked={settings.launchAtLogin}
-                        disabled={busy}
-                        onChange={(event) => void saveSettings({ launchAtLogin: event.target.checked })}
-                      />
-                    </label>
-                    <label className="settingsSelectField">
-                      <span>
-                        <strong>配色模式</strong>
-                        <small>选择浅色、深色，或跟随系统外观</small>
-                      </span>
-                      <select
-                        value={settings.themeMode}
-                        disabled={busy}
-                        onChange={(event) =>
-                          void saveSettings({
-                            themeMode: event.target.value as AppSettings['themeMode']
-                          })
-                        }
-                      >
-                        <option value="light">浅色</option>
-                        <option value="dark">深色</option>
-                        <option value="system">跟随系统</option>
-                      </select>
-                    </label>
-                    <label className="settingsSelectField">
-                      <span>
-                        <strong>关闭窗口行为</strong>
-                        <small>选择点击关闭按钮时退出应用，或隐藏到系统托盘继续后台运行</small>
-                      </span>
-                      <select
-                        value={settings.closeBehavior}
-                        disabled={busy}
-                        onChange={(event) =>
-                          void saveSettings({
-                            closeBehavior: event.target.value as AppSettings['closeBehavior']
-                          })
-                        }
-                      >
-                        <option value="quit">直接关闭</option>
-                        <option value="minimizeToTray">最小化到后台</option>
-                      </select>
-                    </label>
-                    <label className="toggleField">
-                      <span>
-                        <strong>静默启动</strong>
-                        <small>开机自启动时隐藏主窗口，并保留系统托盘入口</small>
-                      </span>
-                      <input
-                        type="checkbox"
-                        checked={settings.silentStartup}
-                        disabled={busy || !settings.launchAtLogin || settings.closeBehavior !== 'minimizeToTray'}
-                        onChange={(event) => void saveSettings({ silentStartup: event.target.checked })}
-                      />
-                    </label>
-                    <label className="toggleField">
-                      <span>
-                        <strong>OpenAI 官方账号验证</strong>
-                        <small>自定义 provider 切换时保留官方 auth.json 登录态</small>
-                      </span>
-                      <input
-                        type="checkbox"
-                        checked={settings.openAiAuthEnabled}
-                        disabled={busy || officialProfiles.length === 0}
-                        onChange={(event) =>
-                          void saveSettings({
-                            openAiAuthEnabled: event.target.checked,
-                            openAiAuthProfileName: event.target.checked ? selectedOpenAiAuthProfile || null : settings.openAiAuthProfileName
-                          })
-                        }
-                      />
-                    </label>
-                    {officialProfiles.length === 0 ? (
-                      <div className="inlineError">需要先创建或导入一个 Official OpenAI OAuth profile，才能启用官方账号验证。</div>
-                    ) : (
-                      settings.openAiAuthEnabled && (
-                        <>
-                          <label>
-                            官方账号凭证
-                            <select
-                              value={selectedOpenAiAuthProfile}
-                              disabled={busy}
-                              onChange={(event) => void saveSettings({ openAiAuthProfileName: event.target.value })}
-                            >
-                              {officialProfiles.map((profile) => (
-                                <option key={profile.name} value={profile.name}>
-                                  {profile.name}
-                                </option>
-                              ))}
-                            </select>
-                          </label>
-                          <div className="settingsHint">
-                            切换自定义 profile 时不会覆盖 auth.json；自定义 OPENAI_API_KEY 会写入 provider 的 experimental_bearer_token。
-                          </div>
-                        </>
-                      )
-                    )}
-                  </div>
-                </section>
-              </div>
-            </div>
-          </>
-        ) : (
-          <>
-            <header className="topbar">
-              <div>
-                <p className="eyeline">当前工作区</p>
-                <h2>{isNew ? '新建 Profile' : selected?.name || '选择一个 Profile'}</h2>
-              </div>
-              <div className="segments" role="tablist">
-                <button className={tab === 'account' ? 'active' : ''} onClick={() => setTab('account')}>
-                  验证
-                </button>
-                <button className={tab === 'providers' ? 'active' : ''} onClick={() => setTab('providers')}>
-                  供应商
-                </button>
-              </div>
-            </header>
-
-            {notice && <div className={`notice ${notice.kind}`}>{notice.text}</div>}
-
-            <div className="statusGrid">
-          <div>
-            <span>检测激活</span>
-            <strong>{activeDetected || '未匹配'}</strong>
-          </div>
-          <div>
-            <span>当前 provider</span>
-            <strong>{current?.providerName || 'Official OpenAI OAuth'}</strong>
-          </div>
-          {proxyStatus.running && (
-            <div>
-              <span>翻译代理</span>
-              <strong>127.0.0.1:{proxyStatus.port}{proxyStatus.profileName ? ` · ${proxyStatus.profileName}` : ''}</strong>
-            </div>
-          )}
+            <Minus size={14} />
+          </button>
+          <button
+            type="button"
+            className="winCtrl"
+            aria-label={isMaximized ? '还原' : '最大化'}
+            onClick={() => void window.codexSwitch.window.maximizeToggle()}
+          >
+            {isMaximized ? <Copy size={12} /> : <Square size={11} />}
+          </button>
+          <button
+            type="button"
+            className="winCtrl close"
+            aria-label="关闭"
+            onClick={() => void window.codexSwitch.window.close()}
+          >
+            <X size={14} />
+          </button>
         </div>
+      </header>
 
-        <div className="workspaceCards">
-          <div className="workspaceCard">
+      <main className="appShell">
+        <nav className="navRail" aria-label="主导航">
+          <div className="navRailGroup">
+            <button
+              type="button"
+              className={`railItem ${page === 'profiles' ? 'active' : ''}`}
+              onClick={() => setPage('profiles')}
+              title="Profile 列表"
+            >
+              <Layers size={18} />
+              <span>配置</span>
+            </button>
+            <button
+              type="button"
+              className={`railItem ${page === 'settings' ? 'active' : ''}`}
+              onClick={() => setPage('settings')}
+              title="设置"
+            >
+              <Settings2 size={18} />
+              <span>设置</span>
+            </button>
+            <button type="button" className="railItem disabled" disabled title="备份（即将推出）">
+              <Archive size={18} />
+              <span>备份</span>
+            </button>
+          </div>
+          <div className="navRailFooter">
+            <button type="button" className="railNew" onClick={startCreate} disabled={busy} title="新建 Profile">
+              <Plus size={18} />
+            </button>
+          </div>
+        </nav>
+
+        <aside className="profileColumn">
+          <div className="columnHead">
+            <span className="caption">配置列表</span>
+            <button type="button" className="ghostIconBtn" onClick={importCurrent} disabled={busy} title="导入当前 ~/.codex">
+              <Download size={14} />
+              <span>导入</span>
+            </button>
+          </div>
+          <div className="profileList">
+            {state.profiles.length === 0 && <div className="empty">还没有 profile</div>}
+            {state.profiles.map((profile) => (
+              <button
+                className={`profileItem ${profile.name === selected?.name ? 'selected' : ''}`}
+                key={profile.name}
+                onClick={() => {
+                  setSelectedName(profile.name);
+                  setPage('profiles');
+                }}
+                onDoubleClick={() => requestSwitch(profile.name)}
+                onContextMenu={(event) => {
+                  event.preventDefault();
+                  setSelectedName(profile.name);
+                  setContextMenu({ name: profile.name, x: event.clientX, y: event.clientY });
+                }}
+              >
+                <span className="profileIcon">{profile.kind === 'official' ? <KeyRound size={16} /> : <Server size={16} />}</span>
+                <span className="profileText">
+                  <strong>{profile.name}</strong>
+                  <small>{profile.kind === 'official' ? 'Official OpenAI OAuth' : profile.providerName}</small>
+                </span>
+                {profile.name === activeName && <span className="activeDot" title="当前激活" />}
+              </button>
+            ))}
+          </div>
+        </aside>
+
+        <section className="canvas">
+          {page === 'settings' ? (
+            <>
+              <header className="statusStrip">
+                <div>
+                  <p className="eyeline">应用配置</p>
+                  <h2>偏好设置</h2>
+                </div>
+              </header>
+
+              {notice && <div className={`notice ${notice.kind}`}>{notice.text}</div>}
+
+              <div className="editorPanel settingsPagePanel">
+                <div className="stackEditor">
+                  <section>
+                    <div className="panelHeader">
+                      <ShieldCheck size={16} />
+                      <strong>常规</strong>
+                      <span>启动与验证</span>
+                    </div>
+                    <div className="settingsForm">
+                      <label className="toggleField">
+                        <span>
+                          <strong>开机自启动</strong>
+                          <small>登录系统后自动启动 Codex Switch</small>
+                        </span>
+                        <input
+                          type="checkbox"
+                          checked={settings.launchAtLogin}
+                          disabled={busy}
+                          onChange={(event) => void saveSettings({ launchAtLogin: event.target.checked })}
+                        />
+                      </label>
+                      <label className="settingsSelectField">
+                        <span>
+                          <strong>配色模式</strong>
+                          <small>选择浅色、深色，或跟随系统外观</small>
+                        </span>
+                        <select
+                          value={settings.themeMode}
+                          disabled={busy}
+                          onChange={(event) =>
+                            void saveSettings({
+                              themeMode: event.target.value as AppSettings['themeMode']
+                            })
+                          }
+                        >
+                          <option value="light">浅色</option>
+                          <option value="dark">深色</option>
+                          <option value="system">跟随系统</option>
+                        </select>
+                      </label>
+                      <label className="settingsSelectField">
+                        <span>
+                          <strong>关闭窗口行为</strong>
+                          <small>选择点击关闭按钮时退出应用，或隐藏到系统托盘继续后台运行</small>
+                        </span>
+                        <select
+                          value={settings.closeBehavior}
+                          disabled={busy}
+                          onChange={(event) =>
+                            void saveSettings({
+                              closeBehavior: event.target.value as AppSettings['closeBehavior']
+                            })
+                          }
+                        >
+                          <option value="quit">直接关闭</option>
+                          <option value="minimizeToTray">最小化到后台</option>
+                        </select>
+                      </label>
+                      <label className="toggleField">
+                        <span>
+                          <strong>静默启动</strong>
+                          <small>开机自启动时隐藏主窗口，并保留系统托盘入口</small>
+                        </span>
+                        <input
+                          type="checkbox"
+                          checked={settings.silentStartup}
+                          disabled={busy || !settings.launchAtLogin || settings.closeBehavior !== 'minimizeToTray'}
+                          onChange={(event) => void saveSettings({ silentStartup: event.target.checked })}
+                        />
+                      </label>
+                      <label className="toggleField">
+                        <span>
+                          <strong>OpenAI 官方账号验证</strong>
+                          <small>自定义 provider 切换时保留官方 auth.json 登录态</small>
+                        </span>
+                        <input
+                          type="checkbox"
+                          checked={settings.openAiAuthEnabled}
+                          disabled={busy || officialProfiles.length === 0}
+                          onChange={(event) =>
+                            void saveSettings({
+                              openAiAuthEnabled: event.target.checked,
+                              openAiAuthProfileName: event.target.checked ? selectedOpenAiAuthProfile || null : settings.openAiAuthProfileName
+                            })
+                          }
+                        />
+                      </label>
+                      {officialProfiles.length === 0 ? (
+                        <div className="inlineError">需要先创建或导入一个 Official OpenAI OAuth profile，才能启用官方账号验证。</div>
+                      ) : (
+                        settings.openAiAuthEnabled && (
+                          <>
+                            <label>
+                              官方账号凭证
+                              <select
+                                value={selectedOpenAiAuthProfile}
+                                disabled={busy}
+                                onChange={(event) => void saveSettings({ openAiAuthProfileName: event.target.value })}
+                              >
+                                {officialProfiles.map((profile) => (
+                                  <option key={profile.name} value={profile.name}>
+                                    {profile.name}
+                                  </option>
+                                ))}
+                              </select>
+                            </label>
+                            <div className="settingsHint">
+                              切换自定义 profile 时不会覆盖 auth.json；自定义 OPENAI_API_KEY 会写入 provider 的 experimental_bearer_token。
+                            </div>
+                          </>
+                        )
+                      )}
+                    </div>
+                  </section>
+                </div>
+              </div>
+            </>
+          ) : (
+            <>
+              <header className="statusStrip">
+                <div>
+                  <p className="eyeline">当前工作区</p>
+                  <h2>{isNew ? '新建 Profile' : selected?.name || '选择一个 Profile'}</h2>
+                </div>
+                <div className="segments" role="tablist">
+                  <button className={tab === 'account' ? 'active' : ''} onClick={() => setTab('account')}>
+                    验证
+                  </button>
+                  <button
+                    className={tab === 'providers' ? 'active' : ''}
+                    onClick={() => setTab('providers')}
+                    disabled={draft.kind === 'official'}
+                    title={draft.kind === 'official' ? '官方订阅无需配置 provider' : '供应商配置'}
+                  >
+                    供应商
+                  </button>
+                </div>
+              </header>
+
+              {notice && <div className={`notice ${notice.kind}`}>{notice.text}</div>}
+
+              <div className="statusGrid">
+                <div>
+                  <span>检测激活</span>
+                  <strong>{activeDetected || '未匹配'}</strong>
+                </div>
+                <div>
+                  <span>当前 provider</span>
+                  <strong>{current?.providerName || 'Official OpenAI OAuth'}</strong>
+                </div>
+                {proxyStatus.running && (
+                  <div>
+                    <span>翻译代理</span>
+                    <strong>
+                      127.0.0.1:{proxyStatus.port}
+                      {proxyStatus.profileName ? ` · ${proxyStatus.profileName}` : ''}
+                    </strong>
+                  </div>
+                )}
+              </div>
+
+              <div className="workspaceCards">
+                <div className="workspaceCard">
+                  <label>
+                    Profile 名称
+                    <input value={draft.name} onChange={(event) => setDraft({ ...draft, name: event.target.value })} />
+                  </label>
+                </div>
+                <div className="workspaceCard">
+                  <span className="cardLabel">类型</span>
+                  <div className="kindToggle" role="radiogroup" aria-label="Profile 类型">
+                    <button
+                      type="button"
+                      role="radio"
+                      aria-checked={draft.kind === 'official'}
+                      className={draft.kind === 'official' ? 'active' : ''}
+                      onClick={() => changeDraftKind('official')}
+                    >
+                      <KeyRound size={14} />
+                      <span>官方订阅</span>
+                    </button>
+                    <button
+                      type="button"
+                      role="radio"
+                      aria-checked={draft.kind === 'custom'}
+                      className={draft.kind === 'custom' ? 'active' : ''}
+                      onClick={() => changeDraftKind('custom')}
+                    >
+                      <Server size={14} />
+                      <span>自定义</span>
+                    </button>
+                  </div>
+                </div>
+                {draft.kind === 'custom' && (
+                  <div className="workspaceCard">
+                    <label>
+                      Provider 名称
+                      <input value={draft.providerName || ''} onChange={(event) => updateProviderName(event.target.value)} />
+                    </label>
+                  </div>
+                )}
+              </div>
+
+              <div className="editorPanel">
+                {tab === 'account' ? (
+                  <div className="stackEditor">
+                    <section>
+                      <div className="panelHeader">
+                        <ShieldCheck size={16} />
+                        <strong>凭证摘要</strong>
+                        <span>{describeAuth(authObject || draft.authJson)}</span>
+                      </div>
+                      <div className="previewForm">
+                        <label>
+                          OPENAI_API_KEY
+                          <input
+                            value={secretInputValue(['OPENAI_API_KEY'])}
+                            {...secretInputHandlers(['OPENAI_API_KEY'])}
+                          />
+                        </label>
+                        {draft.kind === 'official' && (
+                          <>
+                            <label>
+                              id_token
+                              <input
+                                value={secretInputValue(['tokens', 'id_token'])}
+                                {...secretInputHandlers(['tokens', 'id_token'])}
+                              />
+                            </label>
+                            <label>
+                              access_token
+                              <input
+                                value={secretInputValue(['tokens', 'access_token'])}
+                                {...secretInputHandlers(['tokens', 'access_token'])}
+                              />
+                            </label>
+                            <label>
+                              refresh_token
+                              <input
+                                value={secretInputValue(['tokens', 'refresh_token'])}
+                                {...secretInputHandlers(['tokens', 'refresh_token'])}
+                              />
+                            </label>
+                          </>
+                        )}
+                      </div>
+                    </section>
+                    <section>
+                      <button className="collapseHeader" onClick={() => setAuthEditorOpen((open) => !open)}>
+                        <span>
+                          <FileJson size={16} />
+                          <strong>auth.json</strong>
+                        </span>
+                        <small>{authEditorOpen ? '收起' : '展开编辑'}</small>
+                      </button>
+                      {authEditorOpen && <textarea value={authText} spellCheck={false} onChange={(event) => setAuthText(event.target.value)} />}
+                    </section>
+                  </div>
+                ) : draft.kind === 'official' ? (
+                  <div className="providerEmpty">
+                    <div className="providerEmptyIcon">
+                      <KeyRound size={22} />
+                    </div>
+                    <h3>官方订阅无需 provider</h3>
+                    <p>
+                      Official OpenAI OAuth 直接读取 <code>~/.codex/auth.json</code>。
+                      切换至该 profile 时，会清除 <code>config.toml</code> 中的 <code>model_provider</code> 字段，
+                      让 Codex 走默认通道。
+                    </p>
+                    <button
+                      type="button"
+                      className="ghostBtn"
+                      onClick={() => changeDraftKind('custom')}
+                    >
+                      <Server size={14} />
+                      改为自定义 provider
+                    </button>
+                  </div>
+                ) : (
+                  <div className="stackEditor">
+                    <section>
+                      <div className="panelHeader">
+                        <CheckCircle2 size={16} />
+                        <strong>Provider 字段</strong>
+                        <span>{draft.providerName}</span>
+                      </div>
+                      {providerParseError && <div className="inlineError">TOML 解析失败：{providerParseError}</div>}
+                      <div className="previewForm">
+                        <label>
+                          model_provider
+                          <input
+                            value={draft.providerName || ''}
+                            onChange={(event) => updateProviderName(event.target.value)}
+                          />
+                        </label>
+                        <label>
+                          name
+                          <input
+                            value={providerWireName}
+                            onChange={(event) => updateProviderField(['name'], event.target.value)}
+                          />
+                        </label>
+                        <label>
+                          base_url
+                          <input
+                            value={providerBaseUrl}
+                            onChange={(event) => updateProviderField(['base_url'], event.target.value)}
+                          />
+                        </label>
+                        <label>
+                          wire_api
+                          <input
+                            value={providerWireApi}
+                            onChange={(event) => updateProviderField(['wire_api'], event.target.value)}
+                          />
+                        </label>
+                        <label className="checkboxField">
+                          requires_openai_auth
+                          <input
+                            type="checkbox"
+                            checked={providerRequiresOpenAiAuth}
+                            onChange={(event) => updateProviderField(['requires_openai_auth'], event.target.checked)}
+                          />
+                        </label>
+                        <label className="checkboxField">
+                          将上游 /chat/completions 翻译为 Responses API
+                          <input
+                            type="checkbox"
+                            checked={!!draft.useChatCompletionsProxy}
+                            onChange={(event) => setDraft({ ...draft, useChatCompletionsProxy: event.target.checked })}
+                          />
+                        </label>
+                        {draft.useChatCompletionsProxy && (
+                          <div className="formHint">
+                            激活该 profile 时会启动本地翻译代理；
+                            上游 base_url 仍保存在 profile 中，
+                            Codex 实际访问 http://127.0.0.1:&lt;port&gt;/v1。
+                          </div>
+                        )}
+                      </div>
+                    </section>
+                    <section>
+                      <button className="collapseHeader" onClick={() => setProviderEditorOpen((open) => !open)}>
+                        <span>
+                          <Server size={16} />
+                          <strong>Provider TOML</strong>
+                        </span>
+                        <small>{providerEditorOpen ? '收起' : '展开编辑'}</small>
+                      </button>
+                      {providerEditorOpen && (
+                        <textarea
+                          value={providerText}
+                          spellCheck={false}
+                          onChange={(event) => setProviderText(event.target.value)}
+                        />
+                      )}
+                    </section>
+                  </div>
+                )}
+              </div>
+
+              <div className="inlineActionBar">
+                <button className="ghostBtn" disabled={busy} onClick={() => refresh()}>
+                  <RefreshCw size={14} />
+                  刷新状态
+                </button>
+                <div className="actionRight">
+                  <button className="ghostBtn" disabled={busy} onClick={saveDraft}>
+                    <Save size={14} />
+                    {isNew ? '创建' : '保存'}
+                  </button>
+                  <button className="primaryBtn" disabled={!selected || busy} onClick={switchSelected}>
+                    <Zap size={14} />
+                    切换到此 Profile
+                  </button>
+                </div>
+              </div>
+            </>
+          )}
+        </section>
+      </main>
+
+      {contextMenu && (
+        <div
+          className="contextMenu"
+          style={{ left: contextMenu.x, top: contextMenu.y }}
+          onClick={(event) => event.stopPropagation()}
+        >
+          <button
+            onClick={() => {
+              const name = contextMenu.name;
+              setContextMenu(null);
+              renameProfile(name);
+            }}
+          >
+            重命名
+          </button>
+          <button
+            className="danger"
+            onClick={() => {
+              const name = contextMenu.name;
+              setContextMenu(null);
+              void deleteProfile(name);
+            }}
+          >
+            删除
+          </button>
+        </div>
+      )}
+
+      {switchDialog && (
+        <div className="dialogBackdrop" onClick={() => setSwitchDialog(null)}>
+          <form
+            className="nameDialog"
+            onClick={(event) => event.stopPropagation()}
+            onSubmit={(event) => {
+              event.preventDefault();
+              void confirmSwitch();
+            }}
+          >
+            <h3>确认切换 Profile</h3>
+            <p>
+              将切换到 <strong>{switchDialog.profileName}</strong>。确认后会关闭 `codex` 和 `extension-host` 相关进程，然后重新启动
+              `codex`，用于重新加载新的 auth/config。 若已开启 OpenAI 官方账号验证，切换自定义 profile 时不会覆盖 auth.json。
+            </p>
+            <div className="dialogActions">
+              <button type="button" disabled={busy} onClick={() => setSwitchDialog(null)}>
+                取消
+              </button>
+              <button type="submit" disabled={busy}>
+                确认切换
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {nameDialog && (
+        <div className="dialogBackdrop" onClick={() => setNameDialog(null)}>
+          <form
+            className="nameDialog"
+            onClick={(event) => event.stopPropagation()}
+            onSubmit={(event) => {
+              event.preventDefault();
+              void submitNameDialog();
+            }}
+          >
+            <h3>{nameDialog.title}</h3>
+            <p>
+              {nameDialog.kind === 'import'
+                ? '读取当前 ~/.codex/auth.json 和 ~/.codex/config.toml，并保存为一个新的 profile。'
+                : '修改 profile 名称，不会改变 auth.json 或 provider 内容。'}
+            </p>
             <label>
               Profile 名称
-              <input value={draft.name} onChange={(event) => setDraft({ ...draft, name: event.target.value })} />
+              <input
+                autoFocus
+                value={nameDialog.value}
+                onChange={(event) => setNameDialog({ ...nameDialog, value: event.target.value })}
+              />
             </label>
-          </div>
-          <div className="workspaceCard compact">
-            <label>
-              类型
-              <select value={draft.kind} onChange={(event) => changeDraftKind(event.target.value as ProfileInput['kind'])}>
-                <option value="official">Official OpenAI OAuth</option>
-                <option value="custom">自定义</option>
-              </select>
-            </label>
-          </div>
-          {draft.kind === 'custom' && (
-            <div className="workspaceCard">
-              <label>
-                Provider 名称
-                <input value={draft.providerName || ''} onChange={(event) => updateProviderName(event.target.value)} />
-              </label>
+            <div className="dialogActions">
+              <button type="button" disabled={busy} onClick={() => setNameDialog(null)}>
+                取消
+              </button>
+              <button type="submit" disabled={busy}>
+                确认
+              </button>
             </div>
-          )}
+          </form>
         </div>
-
-        <div className="editorPanel">
-          {tab === 'account' ? (
-            <div className="stackEditor">
-              <section>
-                  <div className="panelHeader">
-                  <ShieldCheck size={16} />
-                  <strong>掩码预览</strong>
-                  <span>{describeAuth(authObject || draft.authJson)}</span>
-                </div>
-                <div className="previewForm">
-                  <label>
-                    OPENAI_API_KEY
-                    <input
-                      value={secretInputValue(['OPENAI_API_KEY'])}
-                      {...secretInputHandlers(['OPENAI_API_KEY'])}
-                    />
-                  </label>
-                  {draft.kind === 'official' && (
-                    <>
-                      <label>
-                        id_token
-                        <input
-                          value={secretInputValue(['tokens', 'id_token'])}
-                          {...secretInputHandlers(['tokens', 'id_token'])}
-                        />
-                      </label>
-                      <label>
-                        access_token
-                        <input
-                          value={secretInputValue(['tokens', 'access_token'])}
-                          {...secretInputHandlers(['tokens', 'access_token'])}
-                        />
-                      </label>
-                      <label>
-                        refresh_token
-                        <input
-                          value={secretInputValue(['tokens', 'refresh_token'])}
-                          {...secretInputHandlers(['tokens', 'refresh_token'])}
-                        />
-                      </label>
-                    </>
-                  )}
-                </div>
-              </section>
-              <section>
-                <button className="collapseHeader" onClick={() => setAuthEditorOpen((open) => !open)}>
-                  <span>
-                    <FileJson size={16} />
-                    <strong>auth.json</strong>
-                  </span>
-                  <small>{authEditorOpen ? '收起' : '展开编辑'}</small>
-                </button>
-                {authEditorOpen && <textarea value={authText} spellCheck={false} onChange={(event) => setAuthText(event.target.value)} />}
-              </section>
-            </div>
-          ) : (
-            <div className="stackEditor">
-              <section>
-                <div className="panelHeader">
-                  <CheckCircle2 size={16} />
-                  <strong>Provider 预览</strong>
-                  <span>{draft.kind === 'official' ? 'Official OpenAI OAuth 会移除 model_provider' : draft.providerName}</span>
-                </div>
-                {providerParseError && <div className="inlineError">TOML 解析失败：{providerParseError}</div>}
-                <div className="previewForm">
-                  <label>
-                    model_provider
-                    <input
-                      disabled={draft.kind === 'official'}
-                      value={draft.kind === 'official' ? '(移除)' : draft.providerName || ''}
-                      onChange={(event) => updateProviderName(event.target.value)}
-                    />
-                  </label>
-                  <label>
-                    name
-                    <input
-                      disabled={draft.kind === 'official'}
-                      value={draft.kind === 'official' ? 'Official OpenAI OAuth' : providerWireName}
-                      onChange={(event) => updateProviderField(['name'], event.target.value)}
-                    />
-                  </label>
-                  <label>
-                    base_url
-                    <input
-                      disabled={draft.kind === 'official'}
-                      value={draft.kind === 'official' ? '' : providerBaseUrl}
-                      onChange={(event) => updateProviderField(['base_url'], event.target.value)}
-                    />
-                  </label>
-                  <label>
-                    wire_api
-                    <input
-                      disabled={draft.kind === 'official'}
-                      value={draft.kind === 'official' ? '' : providerWireApi}
-                      onChange={(event) => updateProviderField(['wire_api'], event.target.value)}
-                    />
-                  </label>
-                  <label className="checkboxField">
-                    requires_openai_auth
-                    <input
-                      type="checkbox"
-                      disabled={draft.kind === 'official'}
-                      checked={draft.kind !== 'official' && providerRequiresOpenAiAuth}
-                      onChange={(event) => updateProviderField(['requires_openai_auth'], event.target.checked)}
-                    />
-                  </label>
-                  <label className="checkboxField">
-                    将上游 /chat/completions 翻译为 Responses API
-                    <input
-                      type="checkbox"
-                      disabled={draft.kind === 'official'}
-                      checked={draft.kind !== 'official' && !!draft.useChatCompletionsProxy}
-                      onChange={(event) => setDraft({ ...draft, useChatCompletionsProxy: event.target.checked })}
-                    />
-                  </label>
-                  {draft.kind !== 'official' && draft.useChatCompletionsProxy && (
-                    <div className="formHint">
-                      激活该 profile 时会启动本地翻译代理；
-                      上游 base_url 仍保存在 profile 中，
-                      Codex 实际访问 http://127.0.0.1:&lt;port&gt;/v1。
-                    </div>
-                  )}
-                </div>
-              </section>
-              <section>
-                <button className="collapseHeader" onClick={() => setProviderEditorOpen((open) => !open)}>
-                  <span>
-                    <Server size={16} />
-                    <strong>Provider TOML</strong>
-                  </span>
-                  <small>{providerEditorOpen ? '收起' : '展开编辑'}</small>
-                </button>
-                {providerEditorOpen && (
-                  <textarea
-                    value={providerText}
-                    spellCheck={false}
-                    disabled={draft.kind === 'official'}
-                    onChange={(event) => setProviderText(event.target.value)}
-                  />
-                )}
-              </section>
-            </div>
-          )}
-        </div>
-
-        <div className="floatingActions" aria-label="主要操作">
-          <button title="切换到选中 Profile" disabled={!selected || busy} onClick={switchSelected}>
-            <Zap size={18} />
-          </button>
-          <button title={isNew ? '创建 Profile' : '保存编辑'} disabled={busy} onClick={saveDraft}>
-            <Save size={18} />
-          </button>
-          <button title="刷新状态" disabled={busy} onClick={() => refresh()}>
-            <RefreshCw size={18} />
-          </button>
-        </div>
-          </>
-        )}
-      </section>
-    </main>
+      )}
+    </div>
   );
 }

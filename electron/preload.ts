@@ -26,6 +26,17 @@ const api: AppApi = {
   settings: {
     get: () => ipcRenderer.invoke('settings:get'),
     update: (patch) => ipcRenderer.invoke('settings:update', patch)
+  },
+  window: {
+    minimize: () => ipcRenderer.invoke('window:minimize'),
+    maximizeToggle: () => ipcRenderer.invoke('window:maximize-toggle'),
+    close: () => ipcRenderer.invoke('window:close'),
+    isMaximized: () => ipcRenderer.invoke('window:isMaximized'),
+    onMaximizeChange: (cb: (value: boolean) => void) => {
+      const listener = (_: unknown, value: boolean) => cb(value);
+      ipcRenderer.on('window:maximizeChanged', listener);
+      return () => ipcRenderer.off('window:maximizeChanged', listener);
+    }
   }
 };
 

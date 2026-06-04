@@ -76,7 +76,10 @@ function createWindow(showOnReady = true): void {
     title: 'Codex Switch',
     icon: windowIcon,
     show: false,
-    autoHideMenuBar: true,
+    frame: false,
+    titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'hidden',
+    backgroundColor: '#f7f7f4',
+    roundedCorners: true,
     webPreferences: {
       preload: join(__dirname, '../preload/preload.mjs'),
       sandbox: false,
@@ -97,6 +100,14 @@ function createWindow(showOnReady = true): void {
 
   mainWindow.on('closed', () => {
     mainWindow = null;
+  });
+
+  mainWindow.on('maximize', () => {
+    mainWindow?.webContents.send('window:maximizeChanged', true);
+  });
+
+  mainWindow.on('unmaximize', () => {
+    mainWindow?.webContents.send('window:maximizeChanged', false);
   });
 
   mainWindow.webContents.setWindowOpenHandler((details) => {
@@ -133,6 +144,22 @@ function registerIpc(service: CodexSwitchService): void {
     applySettings(settings);
     return settings;
   });
+  ipcMain.handle('window:minimize', () => {
+    mainWindow?.minimize();
+  });
+  ipcMain.handle('window:maximize-toggle', () => {
+    if (!mainWindow) return false;
+    if (mainWindow.isMaximized()) {
+      mainWindow.unmaximize();
+      return false;
+    }
+    mainWindow.maximize();
+    return true;
+  });
+  ipcMain.handle('window:close', () => {
+    mainWindow?.close();
+  });
+  ipcMain.handle('window:isMaximized', () => mainWindow?.isMaximized() ?? false);
 }
 
 app.whenReady().then(() => {

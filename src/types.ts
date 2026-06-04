@@ -103,6 +103,13 @@ export interface AppApi {
     get: () => Promise<AppSettings>;
     update: (patch: Partial<Omit<AppSettings, 'version'>>) => Promise<AppSettings>;
   };
+  window: {
+    minimize: () => Promise<void>;
+    maximizeToggle: () => Promise<boolean>;
+    close: () => Promise<void>;
+    isMaximized: () => Promise<boolean>;
+    onMaximizeChange: (cb: (value: boolean) => void) => () => void;
+  };
 }
 
 declare global {
