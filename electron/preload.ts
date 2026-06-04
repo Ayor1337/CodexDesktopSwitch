@@ -16,7 +16,8 @@ const api: AppApi = {
     detectActiveProfile: () => ipcRenderer.invoke('codex:detectActiveProfile'),
     parseToml: (text: string) => ipcRenderer.invoke('codex:parseToml', text),
     stringifyToml: (value: Record<string, unknown>) => ipcRenderer.invoke('codex:stringifyToml', value),
-    restart: () => ipcRenderer.invoke('codex:restart')
+    restart: () => ipcRenderer.invoke('codex:restart'),
+    proxyStatus: () => ipcRenderer.invoke('codex:proxyStatus')
   },
   backup: {
     list: () => ipcRenderer.invoke('backup:list'),

@@ -43,6 +43,7 @@ export function extractCurrent(parsed: Record<string, unknown>): { providerName:
 
 interface ApplyProfileOptions {
   embedBearerToken?: boolean;
+  baseUrlOverride?: string;
 }
 
 export function applyProfileToConfig(
@@ -67,8 +68,11 @@ export function applyProfileToConfig(
   }
   const providerBlock: ProviderBlock = {
     ...profile.providerBlock,
-    wire_api: profile.providerBlock.wire_api ?? 'responses'
+    wire_api: options.baseUrlOverride ? 'responses' : profile.providerBlock.wire_api ?? 'responses'
   };
+  if (options.baseUrlOverride) {
+    providerBlock.base_url = options.baseUrlOverride;
+  }
   if (options.embedBearerToken) {
     if (typeof profile.authJson.OPENAI_API_KEY === 'string' && profile.authJson.OPENAI_API_KEY.length > 0) {
       providerBlock.experimental_bearer_token = profile.authJson.OPENAI_API_KEY;

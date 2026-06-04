@@ -13,7 +13,7 @@ import {
   ShieldCheck,
   Zap
 } from 'lucide-react';
-import type { AppSettings, CurrentCodexState, Profile, ProfileInput, ProfileState } from './types';
+import type { AppSettings, CurrentCodexState, Profile, ProfileInput, ProfileState, ProxyStatus } from './types';
 
 type Page = 'profiles' | 'settings';
 type Tab = 'account' | 'providers';
@@ -141,7 +141,8 @@ function createDraft(profile?: Profile): ProfileInput {
     kind: profile.kind,
     authJson: profile.authJson,
     providerName: profile.providerName || '',
-    providerBlock: profile.providerBlock || {}
+    providerBlock: profile.providerBlock || {},
+    useChatCompletionsProxy: profile.useChatCompletionsProxy ?? false
   };
 }
 
@@ -166,6 +167,7 @@ export function App(): JSX.Element {
   const [providerEditorOpen, setProviderEditorOpen] = useState(false);
   const [providerParseError, setProviderParseError] = useState<string | null>(null);
   const [focusedSecretPath, setFocusedSecretPath] = useState<string | null>(null);
+  const [proxyStatus, setProxyStatus] = useState<ProxyStatus>({ running: false, port: null, profileName: null });
 
   const selected = useMemo(
     () => state.profiles.find((profile) => profile.name === selectedName) || null,
@@ -173,16 +175,18 @@ export function App(): JSX.Element {
   );
 
   async function refresh(): Promise<void> {
-    const [profiles, codexState, detected, appSettings] = await Promise.all([
+    const [profiles, codexState, detected, appSettings, proxy] = await Promise.all([
       window.codexSwitch.profiles.list(),
       window.codexSwitch.codex.readCurrent(),
       window.codexSwitch.codex.detectActiveProfile(),
-      window.codexSwitch.settings.get()
+      window.codexSwitch.settings.get(),
+      window.codexSwitch.codex.proxyStatus()
     ]);
     setState(profiles);
     setCurrent(codexState);
     setActiveDetected(detected);
     setSettings(appSettings);
+    setProxyStatus(proxy);
     setSelectedName((name) => name || profiles.profiles[0]?.name || null);
   }
 
@@ -287,7 +291,8 @@ export function App(): JSX.Element {
       ...draft,
       authJson,
       providerName: draft.kind === 'custom' ? draft.providerName : undefined,
-      providerBlock
+      providerBlock,
+      useChatCompletionsProxy: draft.kind === 'custom' ? !!draft.useChatCompletionsProxy : undefined
     };
   }
 
@@ -765,6 +770,12 @@ export function App(): JSX.Element {
             <span>当前 provider</span>
             <strong>{current?.providerName || 'Official OpenAI OAuth'}</strong>
           </div>
+          {proxyStatus.running && (
+            <div>
+              <span>翻译代理</span>
+              <strong>127.0.0.1:{proxyStatus.port}{proxyStatus.profileName ? ` · ${proxyStatus.profileName}` : ''}</strong>
+            </div>
+          )}
         </div>
 
         <div className="workspaceCards">
@@ -899,6 +910,22 @@ export function App(): JSX.Element {
                       onChange={(event) => updateProviderField(['requires_openai_auth'], event.target.checked)}
                     />
                   </label>
+                  <label className="checkboxField">
+                    将上游 /chat/completions 翻译为 Responses API
+                    <input
+                      type="checkbox"
+                      disabled={draft.kind === 'official'}
+                      checked={draft.kind !== 'official' && !!draft.useChatCompletionsProxy}
+                      onChange={(event) => setDraft({ ...draft, useChatCompletionsProxy: event.target.checked })}
+                    />
+                  </label>
+                  {draft.kind !== 'official' && draft.useChatCompletionsProxy && (
+                    <div className="formHint">
+                      激活该 profile 时会启动本地翻译代理；
+                      上游 base_url 仍保存在 profile 中，
+                      Codex 实际访问 http://127.0.0.1:&lt;port&gt;/v1。
+                    </div>
+                  )}
                 </div>
               </section>
               <section>

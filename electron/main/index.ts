@@ -124,6 +124,7 @@ function registerIpc(service: CodexSwitchService): void {
   ipcMain.handle('codex:parseToml', (_event, text) => TOML.parse(text));
   ipcMain.handle('codex:stringifyToml', (_event, value) => TOML.stringify(value || {}));
   ipcMain.handle('codex:restart', () => restartCodexProcesses());
+  ipcMain.handle('codex:proxyStatus', () => service.getProxyStatus());
   ipcMain.handle('backup:list', () => service.listBackups());
   ipcMain.handle('backup:restore', (_event, backupId) => service.restoreBackup(backupId));
   ipcMain.handle('settings:get', () => service.getSettings());
@@ -138,18 +139,20 @@ app.whenReady().then(() => {
   const service = new CodexSwitchService(createRuntimePaths(app.getPath('userData')));
   registerIpc(service);
   service.getSettings().then(applySettings).catch(console.error);
+  service.restoreActiveProxy().catch((error) => console.error('Failed to restore proxy:', error));
   createWindow(!process.argv.includes(SILENT_STARTUP_ARG));
 
   app.on('activate', () => {
     showMainWindow();
+  });
+
+  app.on('before-quit', () => {
+    isQuitting = true;
+    service.shutdown().catch((error) => console.error('Proxy shutdown failed:', error));
   });
 });
 
 app.on('window-all-closed', () => {
   if (settingsSnapshot?.closeBehavior === 'minimizeToTray' && !isQuitting) return;
   if (process.platform !== 'darwin') app.quit();
-});
-
-app.on('before-quit', () => {
-  isQuitting = true;
 });
