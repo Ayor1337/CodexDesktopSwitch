@@ -6,6 +6,7 @@ import {
   Copy,
   Download,
   FileJson,
+  HelpCircle,
   KeyRound,
   Layers,
   Minus,
@@ -140,6 +141,13 @@ function describeAuth(authJson: Record<string, unknown>): string {
   return '自定义凭证';
 }
 
+function withProviderDefaults(block: Record<string, unknown> | undefined): Record<string, unknown> {
+  const next = { ...(block || {}) };
+  if (next.wire_api === undefined) next.wire_api = 'responses';
+  if (next.requires_openai_auth === undefined) next.requires_openai_auth = true;
+  return next;
+}
+
 function createDraft(profile?: Profile): ProfileInput {
   if (!profile) return { ...emptyProfile, authJson: { ...emptyProfile.authJson }, providerBlock: {} };
   return {
@@ -147,7 +155,7 @@ function createDraft(profile?: Profile): ProfileInput {
     kind: profile.kind,
     authJson: profile.authJson,
     providerName: profile.providerName || '',
-    providerBlock: profile.providerBlock || {},
+    providerBlock: profile.kind === 'custom' ? withProviderDefaults(profile.providerBlock) : profile.providerBlock || {},
     useChatCompletionsProxy: profile.useChatCompletionsProxy ?? false
   };
 }
@@ -318,7 +326,7 @@ export function App(): JSX.Element {
       ...draft,
       authJson,
       providerName: draft.kind === 'custom' ? draft.providerName : undefined,
-      providerBlock,
+      providerBlock: draft.kind === 'custom' ? withProviderDefaults(providerBlock) : providerBlock,
       useChatCompletionsProxy: draft.kind === 'custom' ? !!draft.useChatCompletionsProxy : undefined
     };
   }
@@ -451,9 +459,10 @@ export function App(): JSX.Element {
   const authObject = parseJsonObject(authText);
   const providerBlock = draft.providerBlock || {};
   const providerBaseUrl = readPath(providerBlock, ['base_url']);
-  const providerWireApi = readPath(providerBlock, ['wire_api']);
+  const providerWireApi = readPath(providerBlock, ['wire_api']) || 'responses';
   const providerWireName = readPath(providerBlock, ['name']);
-  const providerRequiresOpenAiAuth = readBool(providerBlock, ['requires_openai_auth']);
+  const providerRequiresOpenAiAuth =
+    providerBlock.requires_openai_auth === undefined ? true : readBool(providerBlock, ['requires_openai_auth']);
   const activeName = activeDetected || state.active;
   const officialProfiles = state.profiles.filter((profile) => profile.kind === 'official');
   const selectedOpenAiAuthProfile =
@@ -955,20 +964,32 @@ export function App(): JSX.Element {
                           />
                         </label>
                         <label className="checkboxField">
-                          将上游 /chat/completions 翻译为 Responses API
+                          <span className="labelText">
+                            将上游 /chat/completions 翻译为 Responses API
+                            <span
+                              className="hintTrigger"
+                              tabIndex={0}
+                              role="button"
+                              aria-label="说明"
+                              onClick={(event) => {
+                                event.preventDefault();
+                                event.stopPropagation();
+                              }}
+                            >
+                              <HelpCircle size={13} aria-hidden />
+                              <span className="hintPopover" role="tooltip">
+                                激活该 profile 时会启动本地翻译代理；
+                                上游 base_url 仍保存在 profile 中，
+                                Codex 实际访问 http://127.0.0.1:&lt;port&gt;/v1。
+                              </span>
+                            </span>
+                          </span>
                           <input
                             type="checkbox"
                             checked={!!draft.useChatCompletionsProxy}
                             onChange={(event) => setDraft({ ...draft, useChatCompletionsProxy: event.target.checked })}
                           />
                         </label>
-                        {draft.useChatCompletionsProxy && (
-                          <div className="formHint">
-                            激活该 profile 时会启动本地翻译代理；
-                            上游 base_url 仍保存在 profile 中，
-                            Codex 实际访问 http://127.0.0.1:&lt;port&gt;/v1。
-                          </div>
-                        )}
                       </div>
                     </section>
                     <section>
