@@ -136,6 +136,7 @@ function registerIpc(service: CodexSwitchService): void {
   ipcMain.handle('codex:stringifyToml', (_event, value) => TOML.stringify(value || {}));
   ipcMain.handle('codex:restart', () => restartCodexProcesses());
   ipcMain.handle('codex:proxyStatus', () => service.getProxyStatus());
+  ipcMain.handle('codex:repairComputerUseCache', () => service.repairComputerUseCache());
   ipcMain.handle('backup:list', () => service.listBackups());
   ipcMain.handle('backup:restore', (_event, backupId) => service.restoreBackup(backupId));
   ipcMain.handle('settings:get', () => service.getSettings());

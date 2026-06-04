@@ -1039,7 +1039,8 @@ textarea:focus {
 }
 
 .toggleField,
-.settingsSelectField {
+.settingsSelectField,
+.settingsActionField {
   display: grid;
   align-items: center;
   gap: 16px;
@@ -1058,8 +1059,13 @@ textarea:focus {
   grid-template-columns: 1fr 220px;
 }
 
+.settingsActionField {
+  grid-template-columns: 1fr auto;
+}
+
 .toggleField span,
-.settingsSelectField span {
+.settingsSelectField span,
+.settingsActionField span {
   display: flex;
   min-width: 0;
   flex-direction: column;
@@ -1070,14 +1076,16 @@ textarea:focus {
 }
 
 .toggleField strong,
-.settingsSelectField strong {
+.settingsSelectField strong,
+.settingsActionField strong {
   color: var(--ink);
   font-size: 13px;
   font-weight: 600;
 }
 
 .toggleField small,
-.settingsSelectField small {
+.settingsSelectField small,
+.settingsActionField small {
   color: var(--muted);
   font-size: 11.5px;
   font-weight: 500;
