@@ -67,6 +67,31 @@ describe('responsesRequestToChat', () => {
     ]);
   });
 
+  it('drops Responses-only tool types that Chat Completions cannot accept', () => {
+    const chat = responsesRequestToChat({
+      model: 'm',
+      input: 'x',
+      tools: [
+        { type: 'local_shell' },
+        { type: 'web_search_preview' },
+        { type: 'function', name: 'keep', parameters: { type: 'object' } }
+      ]
+    });
+    expect(chat.tools).toEqual([
+      { type: 'function', function: { name: 'keep', parameters: { type: 'object' } } }
+    ]);
+  });
+
+  it('normalizes tool_choice: only forwards "none"/"auto"/"required" or a function selector', () => {
+    expect(responsesRequestToChat({ model: 'm', input: 'x', tool_choice: 'auto' }).tool_choice).toBe('auto');
+    expect(responsesRequestToChat({ model: 'm', input: 'x', tool_choice: 'required' }).tool_choice).toBe('required');
+    expect(responsesRequestToChat({ model: 'm', input: 'x', tool_choice: { type: 'function', name: 'do' } }).tool_choice).toEqual({
+      type: 'function',
+      function: { name: 'do' }
+    });
+    expect(responsesRequestToChat({ model: 'm', input: 'x', tool_choice: { type: 'local_shell' } }).tool_choice).toBeUndefined();
+  });
+
   it('maps max_output_tokens to max_tokens and reasoning.effort to reasoning_effort', () => {
     const chat = responsesRequestToChat({
       model: 'm',
@@ -91,6 +116,7 @@ describe('chatResponseToResponses', () => {
     expect(out.id).toBe('r1');
     expect(out.created_at).toBe(100);
     expect(out.model).toBe('m');
+    expect(out.status).toBe('completed');
     const output = out.output as Array<Record<string, unknown>>;
     expect(output).toHaveLength(1);
     expect(output[0]).toMatchObject({ type: 'message', role: 'assistant' });
@@ -99,7 +125,21 @@ describe('chatResponseToResponses', () => {
       text: 'hi there',
       annotations: []
     });
-    expect(out.usage).toEqual({ input_tokens: 5, output_tokens: 2, total_tokens: 7 });
+    expect(out.usage).toMatchObject({
+      input_tokens: 5,
+      output_tokens: 2,
+      total_tokens: 7,
+      input_tokens_details: { cached_tokens: 0 },
+      output_tokens_details: { reasoning_tokens: 0 }
+    });
+  });
+
+  it('maps finish_reason length to status incomplete with reason', () => {
+    const out = chatResponseToResponses({
+      choices: [{ message: { role: 'assistant', content: 'truncated' }, finish_reason: 'length' }]
+    });
+    expect(out.status).toBe('incomplete');
+    expect(out.incomplete_details).toEqual({ reason: 'max_output_tokens' });
   });
 
   it('emits function_call items for tool_calls and reasoning item for reasoning_content', () => {
@@ -140,18 +180,35 @@ describe('chatSseToResponsesSse', () => {
   it('emits Responses events for a streaming text completion', async () => {
     const chunks = [
       `data: {"id":"r1","model":"m","created":1,"choices":[{"delta":{"content":"hel"}}]}\n`,
-      `data: {"id":"r1","model":"m","choices":[{"delta":{"content":"lo"}}]}\n`,
+      `data: {"id":"r1","model":"m","choices":[{"delta":{"content":"lo"},"finish_reason":"stop"}]}\n`,
       `data: [DONE]\n`
     ];
     const events = await collect(chatSseToResponsesSse(asAsync(chunks), { model: 'm' }));
     const types = events.map((e) => e.event);
     expect(types[0]).toBe('response.created');
+    expect(types[1]).toBe('response.in_progress');
     expect(types).toContain('response.output_item.added');
     expect(types.filter((t) => t === 'response.output_text.delta')).toHaveLength(2);
     expect(types).toContain('response.output_text.done');
     expect(types).toContain('response.output_item.done');
     expect(types.at(-2)).toBe('response.completed');
     expect(events.at(-1)).toEqual({ event: 'done', data: '[DONE]' });
+
+    // Every non-terminal event carries response_id, event_id, sequence_number.
+    let lastSeq = -1;
+    for (const evt of events) {
+      if (evt.event === 'done') continue;
+      const parsed = JSON.parse(evt.data);
+      expect(parsed.response_id).toBe('r1');
+      expect(parsed.event_id).toMatch(/^evt_/);
+      expect(parsed.sequence_number).toBeGreaterThan(lastSeq);
+      lastSeq = parsed.sequence_number;
+    }
+
+    const completed = JSON.parse(events.at(-2)!.data);
+    expect(completed.response.status).toBe('completed');
+    expect(completed.response.output).toHaveLength(1);
+    expect(completed.response.output[0].content[0].text).toBe('hello');
   });
 
   it('emits function_call streaming events for tool_calls deltas', async () => {

@@ -145,27 +145,45 @@ export function responsesRequestToChat(body: Json): Json {
     out.reasoning_effort = reasoning.effort;
   }
 
+  // Chat Completions only accepts tools of type "function". Codex sends
+  // Responses-specific tool types (local_shell, web_search_preview,
+  // apply_patch, computer_use_preview, ...) that have no Chat-Completions
+  // equivalent — forwarding them produces a 400 "function is not set"
+  // upstream. Filter them out; the agent loop loses those capabilities
+  // unless the upstream model can perform them as plain function tools.
   const tools = asArray(body.tools as unknown);
   if (tools.length > 0) {
-    out.tools = tools.map((raw) => {
+    const translated: Json[] = [];
+    for (const raw of tools) {
       const tool = asObj(raw);
-      if (!tool) return raw;
-      if (tool.type === 'function') {
-        // Responses-style flat function tool -> chat nested form.
-        if (asObj(tool.function)) return tool;
-        const { type: _type, ...rest } = tool;
-        return { type: 'function', function: rest };
+      if (!tool || tool.type !== 'function') continue;
+      const nested = asObj(tool.function);
+      if (nested) {
+        if (!asString(nested.name)) continue;
+        translated.push(tool);
+        continue;
       }
-      return tool;
-    });
+      // Responses-style flat function tool -> chat nested form.
+      const { type: _type, ...rest } = tool;
+      if (!asString(rest.name)) continue;
+      translated.push({ type: 'function', function: rest });
+    }
+    if (translated.length > 0) out.tools = translated;
   }
+
+  // Chat Completions tool_choice: "none" | "auto" | "required" | {type:"function", function:{name}}
   if (body.tool_choice !== undefined) {
     const tc = body.tool_choice;
-    const tcObj = asObj(tc);
-    if (tcObj && tcObj.type === 'function' && asString(tcObj.name)) {
-      out.tool_choice = { type: 'function', function: { name: tcObj.name } };
+    if (typeof tc === 'string') {
+      if (tc === 'none' || tc === 'auto' || tc === 'required') out.tool_choice = tc;
     } else {
-      out.tool_choice = tc;
+      const tcObj = asObj(tc);
+      if (tcObj && tcObj.type === 'function') {
+        const flatName = asString(tcObj.name);
+        const nestedName = asString(asObj(tcObj.function)?.name);
+        const name = flatName || nestedName;
+        if (name) out.tool_choice = { type: 'function', function: { name } };
+      }
     }
   }
 
@@ -186,6 +204,45 @@ interface ResponsesOutputItem {
   name?: string;
   arguments?: string;
   summary?: Array<{ type: 'summary_text'; text: string }>;
+}
+
+function finishReasonToStatus(finish: string | null): { status: string; incomplete?: { reason: string } } {
+  if (finish === 'length') return { status: 'incomplete', incomplete: { reason: 'max_output_tokens' } };
+  if (finish === 'content_filter') return { status: 'incomplete', incomplete: { reason: 'content_filter' } };
+  return { status: 'completed' };
+}
+
+function translateUsage(chatUsage: Json | null): Json | null {
+  if (!chatUsage) return null;
+  const promptDetails = asObj((chatUsage as { prompt_tokens_details?: unknown }).prompt_tokens_details) || {};
+  const completionDetails = asObj((chatUsage as { completion_tokens_details?: unknown }).completion_tokens_details) || {};
+  return {
+    input_tokens: chatUsage.prompt_tokens ?? 0,
+    input_tokens_details: { cached_tokens: promptDetails.cached_tokens ?? 0 },
+    output_tokens: chatUsage.completion_tokens ?? 0,
+    output_tokens_details: { reasoning_tokens: completionDetails.reasoning_tokens ?? 0 },
+    total_tokens: chatUsage.total_tokens ?? 0
+  };
+}
+
+function passthroughResponseFields(requestBody?: Json): Json {
+  const out: Json = {
+    instructions: requestBody?.instructions ?? null,
+    max_output_tokens: requestBody?.max_output_tokens ?? null,
+    parallel_tool_calls: requestBody?.parallel_tool_calls ?? true,
+    previous_response_id: requestBody?.previous_response_id ?? null,
+    reasoning: requestBody?.reasoning ?? null,
+    temperature: requestBody?.temperature ?? null,
+    text: requestBody?.text ?? { format: { type: 'text' } },
+    tool_choice: requestBody?.tool_choice ?? 'auto',
+    tools: Array.isArray(requestBody?.tools) ? (requestBody?.tools as unknown[]) : [],
+    top_p: requestBody?.top_p ?? null,
+    truncation: requestBody?.truncation ?? 'disabled',
+    metadata: requestBody?.metadata ?? null,
+    incomplete_details: null,
+    error: null
+  };
+  return out;
 }
 
 export function chatResponseToResponses(chat: Json, requestBody?: Json): Json {
@@ -209,10 +266,11 @@ export function chatResponseToResponses(chat: Json, requestBody?: Json): Json {
     const call = asObj(rawCall);
     if (!call) continue;
     const fn = asObj(call.function) || {};
+    const callId = asString(call.id) || NEW_ID('call');
     output.push({
       type: 'function_call',
-      id: asString(call.id) || NEW_ID('fc'),
-      call_id: asString(call.id) || NEW_ID('call'),
+      id: NEW_ID('fc'),
+      call_id: callId,
       name: asString(fn.name) || '',
       arguments: asString(fn.arguments) || '',
       status: 'completed'
@@ -243,25 +301,21 @@ export function chatResponseToResponses(chat: Json, requestBody?: Json): Json {
     }
   }
 
-  const usage = asObj(chat.usage) || {};
+  const usage = asObj(chat.usage);
   const created = typeof chat.created === 'number' ? chat.created : Math.floor(Date.now() / 1000);
+  const finishReason = asString(choice.finish_reason);
+  const statusInfo = finishReasonToStatus(finishReason);
 
   return {
     id: asString(chat.id) || NEW_ID('resp'),
     object: 'response',
     created_at: created,
     model: asString(chat.model) || asString(requestBody?.model) || '',
-    status: 'completed',
+    status: statusInfo.status,
     output,
-    usage: {
-      input_tokens: usage.prompt_tokens ?? 0,
-      output_tokens: usage.completion_tokens ?? 0,
-      total_tokens: usage.total_tokens ?? 0
-    },
-    parallel_tool_calls: requestBody?.parallel_tool_calls ?? true,
-    metadata: requestBody?.metadata ?? null,
-    incomplete_details: null,
-    error: null
+    usage: translateUsage(usage),
+    ...passthroughResponseFields(requestBody),
+    ...(statusInfo.incomplete ? { incomplete_details: statusInfo.incomplete } : {})
   };
 }
 
@@ -283,24 +337,56 @@ interface StreamState {
   textBuffer: string;
   toolCalls: Map<number, { id: string; callId: string; name: string; args: string; itemIndex: number }>;
   nextOutputIndex: number;
+  sequenceNumber: number;
+  eventCounter: number;
+  completedItems: ResponsesOutputItem[];
 }
 
-function sseEvent(event: string, data: unknown): SseEvent {
-  return { event, data: data === '[DONE]' ? '[DONE]' : JSON.stringify(data) };
+function nextEventId(state: StreamState): string {
+  return `evt_${(++state.eventCounter).toString(36)}${Math.random().toString(36).slice(2, 6)}`;
 }
 
-function emitInitial(state: StreamState): SseEvent[] {
-  const response = {
+function sseEvent(state: StreamState | null, event: string, data: Json | { type: string }): SseEvent {
+  if (state) {
+    const enriched: Json = {
+      ...(data as Json),
+      event_id: nextEventId(state),
+      response_id: state.responseId,
+      sequence_number: state.sequenceNumber++
+    };
+    return { event, data: JSON.stringify(enriched) };
+  }
+  return { event, data: JSON.stringify(data) };
+}
+
+function buildResponseSnapshot(
+  state: StreamState,
+  requestBody: Json,
+  output: ResponsesOutputItem[],
+  status: string,
+  usage: Json | null,
+  finishReason: string | null
+): Json {
+  const statusInfo = finishReasonToStatus(finishReason);
+  return {
     id: state.responseId,
     object: 'response',
     created_at: state.created,
     model: state.model,
-    status: 'in_progress',
-    output: [],
-    usage: null,
-    error: null
+    status,
+    output,
+    usage: translateUsage(usage),
+    ...passthroughResponseFields(requestBody),
+    ...(status === 'incomplete' && statusInfo.incomplete ? { incomplete_details: statusInfo.incomplete } : {})
   };
-  return [sseEvent('response.created', { type: 'response.created', response })];
+}
+
+function emitInitial(state: StreamState, requestBody: Json): SseEvent[] {
+  const response = buildResponseSnapshot(state, requestBody, [], 'in_progress', null, null);
+  return [
+    sseEvent(state, 'response.created', { type: 'response.created', response }),
+    sseEvent(state, 'response.in_progress', { type: 'response.in_progress', response })
+  ];
 }
 
 function flushText(state: StreamState): SseEvent[] {
@@ -309,21 +395,21 @@ function flushText(state: StreamState): SseEvent[] {
   const outputIndex = state.textItemIndex;
   const text = state.textBuffer;
   const events: SseEvent[] = [
-    sseEvent('response.output_text.done', {
+    sseEvent(state, 'response.output_text.done', {
       type: 'response.output_text.done',
       item_id: itemId,
       output_index: outputIndex,
       content_index: 0,
       text
     }),
-    sseEvent('response.content_part.done', {
+    sseEvent(state, 'response.content_part.done', {
       type: 'response.content_part.done',
       item_id: itemId,
       output_index: outputIndex,
       content_index: 0,
       part: { type: 'output_text', text, annotations: [] }
     }),
-    sseEvent('response.output_item.done', {
+    sseEvent(state, 'response.output_item.done', {
       type: 'response.output_item.done',
       output_index: outputIndex,
       item: {
@@ -335,6 +421,13 @@ function flushText(state: StreamState): SseEvent[] {
       }
     })
   ];
+  state.completedItems.push({
+    type: 'message',
+    id: itemId,
+    status: 'completed',
+    role: 'assistant',
+    content: [{ type: 'output_text', text, annotations: [] }]
+  });
   state.textItemId = null;
   state.textItemIndex = null;
   state.textBuffer = '';
@@ -348,12 +441,12 @@ function ensureTextItem(state: StreamState): SseEvent[] {
   state.textItemId = itemId;
   state.textItemIndex = outputIndex;
   return [
-    sseEvent('response.output_item.added', {
+    sseEvent(state, 'response.output_item.added', {
       type: 'response.output_item.added',
       output_index: outputIndex,
       item: { type: 'message', id: itemId, status: 'in_progress', role: 'assistant', content: [] }
     }),
-    sseEvent('response.content_part.added', {
+    sseEvent(state, 'response.content_part.added', {
       type: 'response.content_part.added',
       item_id: itemId,
       output_index: outputIndex,
@@ -382,7 +475,7 @@ function handleToolCallDeltas(state: StreamState, deltas: Json[]): SseEvent[] {
       entry = { id: itemId, callId, name: name || '', args: '', itemIndex: outputIndex };
       state.toolCalls.set(index, entry);
       out.push(
-        sseEvent('response.output_item.added', {
+        sseEvent(state, 'response.output_item.added', {
           type: 'response.output_item.added',
           output_index: outputIndex,
           item: {
@@ -402,10 +495,12 @@ function handleToolCallDeltas(state: StreamState, deltas: Json[]): SseEvent[] {
     if (argsDelta) {
       entry.args += argsDelta;
       out.push(
-        sseEvent('response.function_call_arguments.delta', {
+        sseEvent(state, 'response.function_call_arguments.delta', {
           type: 'response.function_call_arguments.delta',
           item_id: entry.id,
           output_index: entry.itemIndex,
+          call_id: entry.callId,
+          name: entry.name,
           delta: argsDelta
         })
       );
@@ -418,15 +513,17 @@ function flushToolCalls(state: StreamState): SseEvent[] {
   const out: SseEvent[] = [];
   for (const entry of state.toolCalls.values()) {
     out.push(
-      sseEvent('response.function_call_arguments.done', {
+      sseEvent(state, 'response.function_call_arguments.done', {
         type: 'response.function_call_arguments.done',
         item_id: entry.id,
         output_index: entry.itemIndex,
+        call_id: entry.callId,
+        name: entry.name,
         arguments: entry.args
       })
     );
     out.push(
-      sseEvent('response.output_item.done', {
+      sseEvent(state, 'response.output_item.done', {
         type: 'response.output_item.done',
         output_index: entry.itemIndex,
         item: {
@@ -439,6 +536,14 @@ function flushToolCalls(state: StreamState): SseEvent[] {
         }
       })
     );
+    state.completedItems.push({
+      type: 'function_call',
+      id: entry.id,
+      status: 'completed',
+      call_id: entry.callId,
+      name: entry.name,
+      arguments: entry.args
+    });
   }
   return out;
 }
@@ -455,13 +560,16 @@ export async function* chatSseToResponsesSse(
     textItemIndex: null,
     textBuffer: '',
     toolCalls: new Map(),
-    nextOutputIndex: 0
+    nextOutputIndex: 0,
+    sequenceNumber: 0,
+    eventCounter: 0,
+    completedItems: []
   };
 
   let initialized = false;
   let buffer = '';
   let usage: Json | null = null;
-  let finalChat: Json | null = null;
+  let finishReason: string | null = null;
 
   for await (const chunk of chunks) {
     buffer += chunk;
@@ -480,13 +588,12 @@ export async function* chatSseToResponsesSse(
       } catch {
         continue;
       }
-      finalChat = parsed;
 
       if (!initialized) {
         if (asString(parsed.id)) state.responseId = asString(parsed.id) || state.responseId;
         if (asString(parsed.model)) state.model = asString(parsed.model) || state.model;
         if (typeof parsed.created === 'number') state.created = parsed.created;
-        for (const evt of emitInitial(state)) yield evt;
+        for (const evt of emitInitial(state, requestBody)) yield evt;
         initialized = true;
       }
 
@@ -503,10 +610,11 @@ export async function* chatSseToResponsesSse(
         const reasoningDelta =
           asString((delta as { reasoning_content?: unknown }).reasoning_content) ||
           asString((delta as { reasoning?: unknown }).reasoning);
+        const choiceFinish = asString(choice.finish_reason);
+        if (choiceFinish) finishReason = choiceFinish;
 
         if (reasoningDelta) {
-          // Emit reasoning summary delta; keep it lightweight.
-          yield sseEvent('response.reasoning_summary_text.delta', {
+          yield sseEvent(state, 'response.reasoning_summary_text.delta', {
             type: 'response.reasoning_summary_text.delta',
             delta: reasoningDelta
           });
@@ -515,10 +623,10 @@ export async function* chatSseToResponsesSse(
         if (contentDelta) {
           for (const evt of ensureTextItem(state)) yield evt;
           state.textBuffer += contentDelta;
-          yield sseEvent('response.output_text.delta', {
+          yield sseEvent(state, 'response.output_text.delta', {
             type: 'response.output_text.delta',
-            item_id: state.textItemId,
-            output_index: state.textItemIndex,
+            item_id: state.textItemId!,
+            output_index: state.textItemIndex!,
             content_index: 0,
             delta: contentDelta
           });
@@ -532,49 +640,15 @@ export async function* chatSseToResponsesSse(
   }
 
   if (!initialized) {
-    for (const evt of emitInitial(state)) yield evt;
+    for (const evt of emitInitial(state, requestBody)) yield evt;
   }
 
   for (const evt of flushText(state)) yield evt;
   for (const evt of flushToolCalls(state)) yield evt;
 
-  const finalOutput: ResponsesOutputItem[] = [];
-  // Rebuild final output snapshot for the completed event.
-  for (const entry of state.toolCalls.values()) {
-    finalOutput.push({
-      type: 'function_call',
-      id: entry.id,
-      status: 'completed',
-      call_id: entry.callId,
-      name: entry.name,
-      arguments: entry.args
-    });
-  }
-
-  const completed = {
-    type: 'response.completed',
-    response: {
-      id: state.responseId,
-      object: 'response',
-      created_at: state.created,
-      model: state.model,
-      status: 'completed',
-      output: finalOutput,
-      usage: usage
-        ? {
-            input_tokens: usage.prompt_tokens ?? 0,
-            output_tokens: usage.completion_tokens ?? 0,
-            total_tokens: usage.total_tokens ?? 0
-          }
-        : null,
-      metadata: requestBody.metadata ?? null,
-      parallel_tool_calls: requestBody.parallel_tool_calls ?? true,
-      incomplete_details: null,
-      error: null,
-      _finalChunkId: finalChat ? asString(finalChat.id) : undefined
-    }
-  };
-  yield sseEvent('response.completed', completed);
+  const status = finishReasonToStatus(finishReason).status;
+  const finalResponse = buildResponseSnapshot(state, requestBody, state.completedItems, status, usage, finishReason);
+  yield sseEvent(state, 'response.completed', { type: 'response.completed', response: finalResponse });
   yield { event: 'done', data: '[DONE]' };
 }
 
