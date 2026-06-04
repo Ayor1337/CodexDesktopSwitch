@@ -12,6 +12,7 @@ export interface Profile {
   providerName?: string;
   providerBlock?: ProviderBlock;
   useChatCompletionsProxy?: boolean;
+  model?: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -23,6 +24,7 @@ export interface ProfileInput {
   providerName?: string;
   providerBlock?: ProviderBlock;
   useChatCompletionsProxy?: boolean;
+  model?: string | null;
 }
 
 export interface ProxyStatus {

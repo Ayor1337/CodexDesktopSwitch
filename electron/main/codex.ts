@@ -51,6 +51,12 @@ export function applyProfileToConfig(
   profile: Profile | ProfileInput,
   options: ApplyProfileOptions = {}
 ): Record<string, unknown> {
+  if (typeof profile.model === 'string' && profile.model.length > 0) {
+    parsed.model = profile.model;
+  } else {
+    delete parsed.model;
+  }
+
   if (profileKind(profile) === 'official') {
     delete parsed.model_provider;
     return parsed;
@@ -111,8 +117,9 @@ export async function buildProfileFromCurrent(paths: RuntimePaths, name: string)
   validateName(name);
   const current = await readCurrentCodex(paths);
   if (!current.authJson) throw new Error('当前 ~/.codex/auth.json 不存在');
+  const currentModel = typeof current.config.model === 'string' ? (current.config.model as string) : null;
   if (!current.providerName) {
-    return { name, kind: 'official', authJson: current.authJson };
+    return { name, kind: 'official', authJson: current.authJson, model: currentModel };
   }
   if (!current.providerBlock) {
     throw new Error(`config.toml 设置了 model_provider="${current.providerName}"，但没有对应 provider 表`);
@@ -122,6 +129,7 @@ export async function buildProfileFromCurrent(paths: RuntimePaths, name: string)
     kind: 'custom',
     authJson: current.authJson,
     providerName: current.providerName,
-    providerBlock: current.providerBlock
+    providerBlock: current.providerBlock,
+    model: currentModel
   };
 }

@@ -29,7 +29,7 @@ describe('codex config handling', () => {
       model: 'gpt-5'
     };
 
-    applyProfileToConfig(parsed, { name: 'openai', kind: 'official', authJson: {} });
+    applyProfileToConfig(parsed, { name: 'openai', kind: 'official', authJson: {}, model: 'gpt-5' });
 
     expect(parsed.model_provider).toBeUndefined();
     expect(parsed.model_providers.tokenflux.base_url).toBe('https://proxy.test/v1');
@@ -115,7 +115,7 @@ describe('codex config handling', () => {
     expect(provider.experimental_bearer_token).toBeUndefined();
   });
 
-  it('imports current official profile', async () => {
+  it('imports current official profile with top-level model', async () => {
     await fs.writeFile(paths.auth, JSON.stringify({ OPENAI_API_KEY: 'sk-test' }));
     await fs.writeFile(paths.config, TOML.stringify({ model: 'gpt-5' }));
 
@@ -123,6 +123,19 @@ describe('codex config handling', () => {
 
     expect(profile.kind).toBe('official');
     expect(profile.authJson.OPENAI_API_KEY).toBe('sk-test');
+    expect(profile.model).toBe('gpt-5');
+  });
+
+  it('clears top-level model for an official profile with null model', () => {
+    const parsed: Record<string, unknown> = { model: 'gpt-5' };
+    applyProfileToConfig(parsed, { name: 'p', kind: 'official', authJson: {}, model: null });
+    expect(parsed.model).toBeUndefined();
+  });
+
+  it('writes top-level model for an official profile when model is set', () => {
+    const parsed: Record<string, unknown> = {};
+    applyProfileToConfig(parsed, { name: 'p', kind: 'official', authJson: {}, model: 'gpt-5-codex' });
+    expect(parsed.model).toBe('gpt-5-codex');
   });
 
   it('imports current custom provider profile', async () => {
@@ -147,5 +160,47 @@ describe('codex config handling', () => {
 
     expect(config.parsed).toEqual({});
     expect(config.mode).toBe(0o600);
+  });
+
+  it('writes top-level model for a custom profile when model is set', () => {
+    const parsed: Record<string, unknown> = { model: 'gpt-5' };
+    applyProfileToConfig(parsed, {
+      name: 'p',
+      kind: 'custom',
+      authJson: {},
+      providerName: 'tokenflux',
+      providerBlock: { base_url: 'https://proxy.test/v1' },
+      model: 'qwen-3-coder'
+    });
+    expect(parsed.model).toBe('qwen-3-coder');
+  });
+
+  it('clears top-level model for a custom profile when model is null', () => {
+    const parsed: Record<string, unknown> = { model: 'gpt-5' };
+    applyProfileToConfig(parsed, {
+      name: 'p',
+      kind: 'custom',
+      authJson: {},
+      providerName: 'tokenflux',
+      providerBlock: { base_url: 'https://proxy.test/v1' },
+      model: null
+    });
+    expect(parsed.model).toBeUndefined();
+  });
+
+  it('imports current custom profile with top-level model', async () => {
+    await fs.writeFile(paths.auth, JSON.stringify({ OPENAI_API_KEY: 'sk-test' }));
+    await fs.writeFile(
+      paths.config,
+      TOML.stringify({
+        model: 'qwen-3-coder',
+        model_provider: 'tokenflux',
+        model_providers: { tokenflux: { base_url: 'https://proxy.test/v1' } }
+      })
+    );
+
+    const profile = await buildProfileFromCurrent(paths, 'tokenflux');
+
+    expect(profile.model).toBe('qwen-3-coder');
   });
 });

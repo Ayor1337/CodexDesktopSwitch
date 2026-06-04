@@ -156,7 +156,8 @@ function createDraft(profile?: Profile): ProfileInput {
     authJson: profile.authJson,
     providerName: profile.providerName || '',
     providerBlock: profile.kind === 'custom' ? withProviderDefaults(profile.providerBlock) : profile.providerBlock || {},
-    useChatCompletionsProxy: profile.useChatCompletionsProxy ?? false
+    useChatCompletionsProxy: profile.useChatCompletionsProxy ?? false,
+    model: profile.model ?? null
   };
 }
 
@@ -275,13 +276,15 @@ export function App(): JSX.Element {
     const sourceAuth = hasCurrentAuth
       ? (structuredClone(current!.authJson) as Record<string, unknown>)
       : { ...emptyProfile.authJson };
+    const currentModel = typeof current?.config?.model === 'string' ? (current.config.model as string) : null;
 
     const nextDraft: ProfileInput = {
       name: '',
       kind: 'official',
       authJson: sourceAuth,
       providerName: '',
-      providerBlock: {}
+      providerBlock: {},
+      model: currentModel
     };
 
     setDraft(nextDraft);
@@ -327,7 +330,8 @@ export function App(): JSX.Element {
       authJson,
       providerName: draft.kind === 'custom' ? draft.providerName : undefined,
       providerBlock: draft.kind === 'custom' ? withProviderDefaults(providerBlock) : providerBlock,
-      useChatCompletionsProxy: draft.kind === 'custom' ? !!draft.useChatCompletionsProxy : undefined
+      useChatCompletionsProxy: draft.kind === 'custom' ? !!draft.useChatCompletionsProxy : undefined,
+      model: draft.model && draft.model.length > 0 ? draft.model : null
     };
   }
 
@@ -840,6 +844,18 @@ export function App(): JSX.Element {
                     </label>
                   </div>
                 )}
+                <div className="workspaceCard">
+                  <label>
+                    Model
+                    <input
+                      value={draft.model ?? ''}
+                      placeholder="留空则不写入 config.toml model 字段"
+                      onChange={(event) =>
+                        setDraft({ ...draft, model: event.target.value.length > 0 ? event.target.value : null })
+                      }
+                    />
+                  </label>
+                </div>
               </div>
 
               <div className="editorPanel">
