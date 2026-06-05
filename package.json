@@ -39,7 +39,7 @@
     },
     "nsis": {
       "oneClick": false,
-      "perMachine": false,
+      "perMachine": true,
       "allowToChangeInstallationDirectory": true,
       "include": "build/installer.nsh",
       "artifactName": "${productName}-Setup-${version}-${arch}.${ext}"

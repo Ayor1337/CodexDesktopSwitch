@@ -1,8 +1,10 @@
 !macro customInit
   ${IfNot} ${Silent}
     ReadRegStr $0 HKEY_CURRENT_USER "${UNINSTALL_REGISTRY_KEY}" "UninstallString"
+    ReadRegStr $1 HKEY_LOCAL_MACHINE "${UNINSTALL_REGISTRY_KEY}" "UninstallString"
     ${If} $0 != ""
-      MessageBox MB_YESNO|MB_ICONQUESTION "检测到已安装旧版 Codex Switch。是否先卸载旧版再安装新版？" IDYES allowUpgrade
+    ${OrIf} $1 != ""
+      MessageBox MB_YESNO|MB_ICONQUESTION "检测到已安装旧版 Codex Switch。是否卸载旧版后继续安装新版？" IDYES allowUpgrade
       Abort
       allowUpgrade:
     ${EndIf}
