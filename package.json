@@ -1,6 +1,6 @@
 {
   "name": "codex-switch-electron",
-  "version": "0.3.2",
+  "version": "0.3.3",
   "private": true,
   "description": "Electron desktop app for switching Codex auth and provider profiles.",
   "type": "module",
@@ -39,7 +39,7 @@
     },
     "nsis": {
       "oneClick": false,
-      "perMachine": false,
+      "perMachine": true,
       "allowToChangeInstallationDirectory": true,
       "include": "build/installer.nsh",
       "artifactName": "${productName}-Setup-${version}-${arch}.${ext}"
