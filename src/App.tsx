@@ -463,10 +463,17 @@ export function App(): JSX.Element {
   }
 
   async function repairComputerUseCache(): Promise<void> {
-    const result = await run(
-      () => window.codexSwitch.codex.repairComputerUseCache(),
-      '修复已完成：已备份 config.toml 并重命名 bundled 插件缓存。请手动重启 Codex，然后在插件设置中重新开启 Browser、Chrome 和 Computer Use。'
-    );
+    const result = await run(async () => {
+      await window.codexSwitch.codex.repairComputerUseCache();
+      if (typeof window.codexSwitch.codex.restart !== 'function') {
+        throw new Error('修复已完成，但重启 Codex 的 preload API 尚未加载。请完全关闭并重新启动此 Electron 应用后再试。');
+      }
+      const restartResult = await window.codexSwitch.codex.restart();
+      if (!restartResult.started) {
+        throw new Error('修复已完成，但没有找到正在运行的 Codex 桌面应用路径，因此未自动重启。请手动重新打开 Codex Desktop。');
+      }
+      return true;
+    }, '修复已完成：已同步本地 openai-bundled marketplace、Computer Use 兼容插件和插件缓存，并已请求重启 Codex Desktop。');
     if (result) setRepairDialogOpen(false);
   }
 
@@ -776,9 +783,9 @@ export function App(): JSX.Element {
                     <div className="settingsForm">
                       <div className="settingsActionField">
                         <span>
-                          <strong>修复 Computer Use 插件缓存</strong>
+                          <strong>修复 Computer Use 本地兼容插件</strong>
                           <small>
-                            备份 config.toml，重置 openai-bundled 缓存，并把 Browser、Chrome、Computer Use 插件设为关闭。
+                            备份 config.toml，镜像 openai-bundled marketplace，安装本地 Computer Use 兼容插件并刷新 Browser / Chrome 缓存。
                           </small>
                         </span>
                         <button type="button" className="ghostBtn" disabled={busy} onClick={() => setRepairDialogOpen(true)}>
@@ -787,7 +794,7 @@ export function App(): JSX.Element {
                         </button>
                       </div>
                       <div className="settingsHint">
-                        完成后需要手动重启 Codex，并在 Codex 插件设置中自行重新开启被关闭的插件。
+                        完成后会自动重启当前运行的 Codex Desktop；该修复不会重打包或重装 Codex Desktop。
                       </div>
                     </div>
                   </section>
@@ -1148,10 +1155,11 @@ export function App(): JSX.Element {
               void repairComputerUseCache();
             }}
           >
-            <h3>修复 Computer Use 插件缓存？</h3>
+            <h3>修复 Computer Use 本地兼容插件？</h3>
             <p>
-              此操作会备份 <code>~/.codex/config.toml</code>，重命名 openai-bundled 插件缓存目录，并将 Browser、Chrome、Computer
-              Use 三个 bundled 插件写为 disabled。完成后请手动重启 Codex，再自行重新打开被关闭的插件。
+              此操作会备份 <code>~/.codex/config.toml</code>，从已安装 Codex Desktop 镜像 openai-bundled marketplace，安装本地 Computer
+              Use 兼容插件，刷新 Browser / Chrome / Computer Use 缓存，并启用 Windows Computer Use 环境变量。完成后会自动重启当前运行的
+              Codex Desktop；如果未找到正在运行的桌面应用路径，会提示手动重启。
             </p>
             <div className="dialogActions">
               <button type="button" disabled={busy} onClick={() => setRepairDialogOpen(false)}>
