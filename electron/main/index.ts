@@ -60,6 +60,15 @@ function syncTray(): void {
 function applySettings(settings: AppSettings): void {
   settingsSnapshot = settings;
   syncTray();
+
+  if (!app.isPackaged) {
+    app.setLoginItemSettings({
+      openAtLogin: false,
+      args: []
+    });
+    return;
+  }
+
   app.setLoginItemSettings({
     openAtLogin: settings.launchAtLogin,
     args: settings.launchAtLogin && settings.silentStartup ? [SILENT_STARTUP_ARG] : []

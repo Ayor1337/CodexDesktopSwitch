@@ -171,6 +171,8 @@ export function App(): JSX.Element {
   const [page, setPage] = useState<Page>('profiles');
   const [tab, setTab] = useState<Tab>('account');
   const [notice, setNotice] = useState<Notice>(null);
+  const [visibleNotice, setVisibleNotice] = useState<Exclude<Notice, null> | null>(null);
+  const [noticeLeaving, setNoticeLeaving] = useState(false);
   const [draft, setDraft] = useState<ProfileInput>(() => createDraft());
   const [authText, setAuthText] = useState(stringifyJson(emptyProfile.authJson));
   const [providerText, setProviderText] = useState('');
@@ -222,6 +224,22 @@ export function App(): JSX.Element {
     const off = window.codexSwitch.window.onMaximizeChange(setIsMaximized);
     return () => off();
   }, []);
+
+  useEffect(() => {
+    if (notice) {
+      setVisibleNotice(notice);
+      setNoticeLeaving(false);
+      return;
+    }
+
+    if (!visibleNotice) return;
+    setNoticeLeaving(true);
+    const timeout = window.setTimeout(() => {
+      setVisibleNotice(null);
+      setNoticeLeaving(false);
+    }, 180);
+    return () => window.clearTimeout(timeout);
+  }, [notice, visibleNotice]);
 
   useEffect(() => {
     if (!selected) return;
@@ -530,6 +548,7 @@ export function App(): JSX.Element {
 
   const activeChipLabel = activeName || '未匹配';
   const activeChipKind = activeName ? 'live' : 'idle';
+  const noticeTitle = visibleNotice?.kind === 'success' ? '操作完成' : visibleNotice?.kind === 'error' ? '需要处理' : '提示';
 
   return (
     <div className="appRoot" onClick={() => setContextMenu(null)}>
@@ -657,8 +676,6 @@ export function App(): JSX.Element {
                   <h2>偏好设置</h2>
                 </div>
               </header>
-
-              {notice && <div className={`notice ${notice.kind}`}>{notice.text}</div>}
 
               <div className="editorPanel settingsPagePanel">
                 <div className="stackEditor">
@@ -822,8 +839,6 @@ export function App(): JSX.Element {
                   </button>
                 </div>
               </header>
-
-              {notice && <div className={`notice ${notice.kind}`}>{notice.text}</div>}
 
               <div className="statusGrid">
                 <div>
@@ -1206,6 +1221,29 @@ export function App(): JSX.Element {
               </button>
             </div>
           </form>
+        </div>
+      )}
+
+      {visibleNotice && (
+        <div className={`noticeOverlay ${noticeLeaving ? 'leaving' : ''}`} role="status" aria-live="polite">
+          <div className={`noticeDialog ${visibleNotice.kind}`}>
+            <div className="noticeIcon">
+              {visibleNotice.kind === 'success' ? (
+                <CheckCircle2 size={18} />
+              ) : visibleNotice.kind === 'error' ? (
+                <HelpCircle size={18} />
+              ) : (
+                <Zap size={18} />
+              )}
+            </div>
+            <div className="noticeBody">
+              <strong>{noticeTitle}</strong>
+              <p>{visibleNotice.text}</p>
+            </div>
+            <button type="button" className="noticeClose" onClick={() => setNotice(null)} aria-label="关闭通知">
+              <X size={16} />
+            </button>
+          </div>
         </div>
       )}
     </div>

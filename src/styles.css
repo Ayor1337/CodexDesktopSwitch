@@ -675,27 +675,123 @@ textarea {
   border-radius: 2px 2px 0 0;
 }
 
-.notice {
-  margin-bottom: 16px;
-  padding: 10px 12px;
-  border-radius: 7px;
-  font-size: 13px;
-  font-weight: 600;
+.noticeOverlay {
+  position: fixed;
+  left: 50%;
+  top: 54px;
+  z-index: 40;
+  width: min(420px, calc(100vw - 32px));
+  transform: translateX(-50%);
+  pointer-events: none;
+  animation: noticeOverlayIn 180ms ease-out both;
 }
 
-.notice.success {
+.noticeOverlay.leaving {
+  animation: noticeOverlayOut 180ms ease-in both;
+}
+
+.noticeDialog {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr) 32px;
+  gap: 10px;
+  align-items: start;
+  padding: 14px;
+  border: 1px solid var(--hairline);
+  border-radius: 8px;
+  background: var(--surface-card);
+  box-shadow: 0 18px 44px var(--shadow-strong);
+  color: var(--ink);
+  pointer-events: auto;
+}
+
+.noticeIcon {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  place-items: center;
+  border-radius: 8px;
+}
+
+.noticeDialog.success .noticeIcon {
   color: var(--success);
   background: var(--success-surface);
 }
 
-.notice.error {
+.noticeDialog.error .noticeIcon {
   color: var(--error);
   background: var(--error-surface);
 }
 
-.notice.info {
+.noticeDialog.info .noticeIcon {
   color: var(--info);
   background: var(--info-surface);
+}
+
+.noticeBody {
+  min-width: 0;
+}
+
+.noticeBody strong {
+  display: block;
+  margin-bottom: 4px;
+  font-size: 13px;
+  line-height: 1.2;
+}
+
+.noticeBody p {
+  margin: 0;
+  color: var(--body);
+  font-size: 13px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.noticeClose {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  place-items: center;
+  border: 0;
+  border-radius: 7px;
+  color: var(--muted);
+  background: transparent;
+  cursor: pointer;
+}
+
+.noticeClose:hover {
+  color: var(--ink);
+  background: var(--hover-surface);
+}
+
+@keyframes noticeOverlayIn {
+  from {
+    opacity: 0;
+    transform: translateX(-50%) translateY(-10px) scale(0.98);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0) scale(1);
+  }
+}
+
+@keyframes noticeOverlayOut {
+  from {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0) scale(1);
+  }
+
+  to {
+    opacity: 0;
+    transform: translateX(-50%) translateY(-8px) scale(0.98);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .noticeOverlay,
+  .noticeOverlay.leaving {
+    animation-duration: 1ms;
+  }
 }
 
 .statusGrid {
