@@ -60,6 +60,12 @@ export interface CurrentCodexState {
   };
 }
 
+export interface ActiveProfileDetection {
+  status: 'sync' | 'not_sync' | 'none';
+  profileName: string | null;
+  kind?: ProfileKind;
+}
+
 export interface BackupEntry {
   id: string;
   createdAt: string;
@@ -71,6 +77,8 @@ export interface BackupEntry {
 
 export interface SwitchResult {
   didBackup: boolean;
+  syncedOfficialAuthProfileName?: string;
+  officialAuthSyncSkipped?: boolean;
 }
 
 export interface RestartCodexResult {
@@ -97,11 +105,12 @@ export interface AppApi {
     delete: (name: string) => Promise<ProfileState>;
     rename: (oldName: string, newName: string) => Promise<ProfileState>;
     importCurrent: (name: string) => Promise<ProfileState>;
+    syncCurrentOfficialAuth: (name: string) => Promise<ProfileState>;
     switch: (name: string) => Promise<SwitchResult>;
   };
   codex: {
     readCurrent: () => Promise<CurrentCodexState>;
-    detectActiveProfile: () => Promise<string | null>;
+    detectActiveProfile: () => Promise<ActiveProfileDetection>;
     parseToml: (text: string) => Promise<ProviderBlock>;
     stringifyToml: (value: ProviderBlock) => Promise<string>;
     restart: () => Promise<RestartCodexResult>;
