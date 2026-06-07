@@ -71,7 +71,7 @@ Profile 是一套可切换的 Codex 配置。每个 Profile 至少包含：
 - 切换后关闭 Codex / extension-host 相关进程
 - 尝试用当前正在运行的 Codex 桌面应用路径重新启动 Codex
 - 支持开机启动、静默启动、关闭到托盘、主题设置
-- 支持修复 Windows Computer Use 本地兼容插件与 bundled 插件缓存
+- 支持重置 Windows Computer Use 缓存与旧本地覆盖配置
 
 ## 基本使用流程
 
@@ -130,22 +130,23 @@ http://127.0.0.1:<port>/v1
 
 原始上游 `base_url` 仍保存在 Profile 中。切换到不使用代理的 Profile 时，代理会停止。
 
-## Computer Use 本地兼容插件修复
+## Computer Use 缓存重置
 
-设置页提供“修复 Computer Use 本地兼容插件”功能。
+设置页提供“重置 Computer Use 缓存”功能。
 
 该操作会：
 
 - 备份 `~/.codex/config.toml`
-- 从已安装的 Codex Desktop 镜像 openai-bundled marketplace 到 `~/.codex/.tmp/bundled-marketplaces/openai-bundled`
-- 写入本地 `computer-use@openai-bundled` 兼容插件
-- 刷新 Browser、Chrome、Computer Use 的 bundled 插件缓存和 `latest` 指向
-- 将 `config.toml` 指向本地 openai-bundled marketplace，并启用 `computer-use@openai-bundled`
-- 设置用户环境变量 `CODEX_ELECTRON_ENABLE_WINDOWS_COMPUTER_USE=1`
-- 尽量修正 Chrome native messaging manifest 到稳定的 Chrome 缓存路径
+- 删除 `~/.codex/plugins/cache/openai-bundled/computer-use`
+- 删除旧方案创建的 `~/.codex/.tmp/bundled-marketplaces/openai-bundled`
+- 从 `config.toml` 移除旧本地 openai-bundled marketplace 覆盖
+- 从 `config.toml` 移除旧本地 `computer-use@openai-bundled` 启用项
+- 从 `config.toml` 移除 Codex Desktop 生成的过期 `mcp_servers.node_repl` 配置
+- 保留并启用 `features.computer_use = true`
+- 保留并设置用户环境变量 `CODEX_ELECTRON_ENABLE_WINDOWS_COMPUTER_USE=1`
 - 自动重启当前运行的 Codex Desktop
 
-如果没有找到正在运行的 Codex Desktop 可执行路径，Codex Switch 会提示手动重新打开 Codex。该功能不会重打包、签名或重装 Codex Desktop，因此不包含 Fast Mode / locale / browser gate 等 MSIX 补丁。
+如果没有找到正在运行的 Codex Desktop 可执行路径，Codex Switch 会提示手动重新打开 Codex。该功能不会写入本地 Computer Use 兼容插件，不会刷新 Browser / Chrome 缓存，也不会主动下载插件；重启后请在 Codex Desktop 内自行重新下载/启用 Computer Use，并让 Codex 重新生成当前版本的 `node_repl` MCP 配置。
 
 ## 数据与安全
 

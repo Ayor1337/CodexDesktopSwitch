@@ -89,11 +89,8 @@ export interface RestartCodexResult {
 
 export interface RepairComputerUseCacheResult {
   backupPath: string | null;
-  marketplaceRoot: string;
-  pluginSourceRoot: string;
-  cacheVersionRoot: string;
-  syncedCacheRoots: string[];
-  chromeNativeManifestPath: string | null;
+  removedPaths: string[];
+  configUpdated: boolean;
   environmentEnabled: boolean;
 }
 
