@@ -1,4 +1,4 @@
-import type { AppSettings, Profile, ProfileInput, ProfileState, ProxyStatus, SwitchResult } from '../../src/types';
+import type { ActiveProfileDetection, AppSettings, Profile, ProfileInput, ProfileState, ProxyStatus, SwitchResult } from '../../src/types';
 import type { RuntimePaths } from './paths';
 import { addProfile, deleteProfile, findProfile, profileKind, renameProfile, sameProfileState, updateProfile } from './profiles';
 import { loadProfiles, saveProfiles } from './store';
@@ -51,10 +51,18 @@ export class CodexSwitchService {
     return state;
   }
 
+  async syncCurrentOfficialAuthProfile(name: string): Promise<ProfileState> {
+    const state = await loadProfiles(this.paths);
+    this.syncCurrentOfficialAuthIntoProfile(state, name, await readCurrentCodex(this.paths));
+    await saveProfiles(this.paths, state);
+    return state;
+  }
+
   async switchProfile(name: string): Promise<SwitchResult> {
     const state = await loadProfiles(this.paths);
     const profile = findProfile(state, name);
     if (!profile) throw new Error(`Profile 不存在：${name}`);
+    const authSync = await this.syncCurrentOfficialAuth(state);
     const switchPlan = await this.buildSwitchPlan(state, profile);
 
     const didBackup = await backupOnceIfNeeded(this.paths);
@@ -71,7 +79,7 @@ export class CodexSwitchService {
 
     state.active = name;
     await saveProfiles(this.paths, state);
-    return { didBackup };
+    return { didBackup, ...authSync };
   }
 
   async restoreActiveProxy(): Promise<void> {
@@ -137,16 +145,54 @@ export class CodexSwitchService {
     return { embedBearerToken: true, writeAuth: false };
   }
 
+  private async syncCurrentOfficialAuth(
+    state: ProfileState
+  ): Promise<Pick<SwitchResult, 'syncedOfficialAuthProfileName' | 'officialAuthSyncSkipped'>> {
+    const current = await readCurrentCodex(this.paths);
+    if (!current.authJson || current.providerName) return {};
+
+    let profileName: string | null = null;
+    if (state.active && profileKind(findProfile(state, state.active) || {}) === 'official') {
+      profileName = state.active;
+    } else {
+      const matches = state.profiles.filter(
+        (candidate) => profileKind(candidate) === 'official' && sameProfileState(candidate, current.authJson!, null, null)
+      );
+      if (matches.length === 1) profileName = matches[0].name;
+    }
+
+    if (!profileName) return { officialAuthSyncSkipped: true };
+
+    this.syncCurrentOfficialAuthIntoProfile(state, profileName, current);
+    return { syncedOfficialAuthProfileName: profileName };
+  }
+
+  private syncCurrentOfficialAuthIntoProfile(state: ProfileState, name: string, current: Awaited<ReturnType<typeof readCurrentCodex>>): void {
+    if (!current.authJson) throw new Error('当前 ~/.codex/auth.json 不存在');
+    if (current.providerName) throw new Error('当前 Codex 配置不是 Official OpenAI OAuth 通道');
+    const profile = findProfile(state, name);
+    if (!profile) throw new Error(`Profile 不存在：${name}`);
+    if (profileKind(profile) !== 'official') throw new Error(`Profile 不是 Official OpenAI OAuth：${name}`);
+    profile.authJson = current.authJson;
+    profile.updatedAt = new Date().toISOString();
+  }
+
   async readCurrent() {
     return readCurrentCodex(this.paths);
   }
 
-  async detectActiveProfile(): Promise<string | null> {
+  async detectActiveProfile(): Promise<ActiveProfileDetection> {
     const state = await loadProfiles(this.paths);
     const current = await readCurrentCodex(this.paths);
-    if (!current.authJson) return null;
+    if (!current.authJson) return { status: 'none', profileName: null };
     const config = await readConfig(this.paths);
     const detected = extractCurrent(config.parsed);
+    const activeProfile = state.active ? findProfile(state, state.active) : null;
+    if (!detected.providerName && activeProfile && profileKind(activeProfile) === 'official') {
+      return sameProfileState(activeProfile, current.authJson, null, null)
+        ? { status: 'sync', profileName: activeProfile.name, kind: 'official' }
+        : { status: 'not_sync', profileName: activeProfile.name, kind: 'official' };
+    }
     const settings = await loadSettings(this.paths);
     const proxyStatus = getProxyStatus();
     const profile = state.profiles.find((candidate) => {
@@ -166,7 +212,7 @@ export class CodexSwitchService {
       });
       return deepEqual(extractCurrent(expected).providerBlock, detected.providerBlock);
     });
-    return profile?.name || null;
+    return profile ? { status: 'sync', profileName: profile.name, kind: profileKind(profile) } : { status: 'none', profileName: null };
   }
 
   async listBackups() {

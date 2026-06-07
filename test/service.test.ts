@@ -80,7 +80,7 @@ describe('CodexSwitchService', () => {
 
     await service.switchProfile('tokenflux');
 
-    expect(await service.detectActiveProfile()).toBe('tokenflux');
+    expect(await service.detectActiveProfile()).toEqual({ status: 'sync', profileName: 'tokenflux', kind: 'custom' });
   });
 
   it('keeps custom auth unchanged when official auth reuse is disabled', async () => {
@@ -101,6 +101,188 @@ describe('CodexSwitchService', () => {
     const auth = JSON.parse(await fs.readFile(paths.auth, 'utf8'));
 
     expect(auth).toEqual({ OPENAI_API_KEY: 'proxy-key' });
+  });
+
+  it('syncs refreshed official auth to the active official profile before switching away', async () => {
+    await service.createProfile({
+      name: 'openai',
+      kind: 'official',
+      authJson: {
+        OPENAI_API_KEY: null,
+        auth_mode: 'chatgpt',
+        tokens: { access_token: 'old-access', refresh_token: 'refresh-token' }
+      }
+    });
+    await service.createProfile({
+      name: 'tokenflux',
+      kind: 'custom',
+      authJson: { OPENAI_API_KEY: 'proxy-key' },
+      providerName: 'tokenflux',
+      providerBlock: { base_url: 'https://proxy.test/v1', env_key: 'OPENAI_API_KEY' }
+    });
+    await service.switchProfile('openai');
+    await fs.writeFile(
+      paths.auth,
+      JSON.stringify({
+        OPENAI_API_KEY: null,
+        auth_mode: 'chatgpt',
+        tokens: { access_token: 'new-access', refresh_token: 'refresh-token' }
+      })
+    );
+
+    const result = await service.switchProfile('tokenflux');
+    const state = await service.listProfiles();
+    const official = state.profiles.find((profile) => profile.name === 'openai');
+    const auth = JSON.parse(await fs.readFile(paths.auth, 'utf8'));
+
+    expect(result.syncedOfficialAuthProfileName).toBe('openai');
+    expect(result.officialAuthSyncSkipped).toBeUndefined();
+    expect(official?.authJson).toEqual({
+      OPENAI_API_KEY: null,
+      auth_mode: 'chatgpt',
+      tokens: { access_token: 'new-access', refresh_token: 'refresh-token' }
+    });
+    expect(auth).toEqual({ OPENAI_API_KEY: 'proxy-key' });
+  });
+
+  it('detects an active official profile as not sync when current auth changed', async () => {
+    await service.createProfile({
+      name: 'openai',
+      kind: 'official',
+      authJson: {
+        OPENAI_API_KEY: null,
+        auth_mode: 'chatgpt',
+        tokens: { access_token: 'old-access' }
+      }
+    });
+    await service.switchProfile('openai');
+    await fs.writeFile(
+      paths.auth,
+      JSON.stringify({
+        OPENAI_API_KEY: null,
+        auth_mode: 'chatgpt',
+        tokens: { access_token: 'new-access' }
+      })
+    );
+
+    expect(await service.detectActiveProfile()).toEqual({ status: 'not_sync', profileName: 'openai', kind: 'official' });
+  });
+
+  it('syncs current official auth manually and returns detection to sync', async () => {
+    await service.createProfile({
+      name: 'openai',
+      kind: 'official',
+      authJson: {
+        OPENAI_API_KEY: null,
+        auth_mode: 'chatgpt',
+        tokens: { access_token: 'old-access' }
+      }
+    });
+    await service.switchProfile('openai');
+    await fs.writeFile(
+      paths.auth,
+      JSON.stringify({
+        OPENAI_API_KEY: null,
+        auth_mode: 'chatgpt',
+        tokens: { access_token: 'new-access' }
+      })
+    );
+
+    const state = await service.syncCurrentOfficialAuthProfile('openai');
+    const official = state.profiles.find((profile) => profile.name === 'openai');
+
+    expect(official?.authJson).toEqual({
+      OPENAI_API_KEY: null,
+      auth_mode: 'chatgpt',
+      tokens: { access_token: 'new-access' }
+    });
+    expect(await service.detectActiveProfile()).toEqual({ status: 'sync', profileName: 'openai', kind: 'official' });
+  });
+
+  it('returns none for official channel without an active official profile', async () => {
+    await fs.writeFile(paths.auth, JSON.stringify({ OPENAI_API_KEY: null, auth_mode: 'chatgpt' }));
+    await fs.writeFile(paths.config, TOML.stringify({ model: 'gpt-5' }));
+    await service.createProfile({
+      name: 'openai',
+      kind: 'official',
+      authJson: { OPENAI_API_KEY: null, auth_mode: 'chatgpt-old' }
+    });
+
+    expect(await service.detectActiveProfile()).toEqual({ status: 'none', profileName: null });
+  });
+
+  it('continues switching without overwriting profiles when official auth cannot be matched', async () => {
+    await fs.writeFile(
+      paths.auth,
+      JSON.stringify({
+        OPENAI_API_KEY: null,
+        auth_mode: 'chatgpt',
+        tokens: { access_token: 'new-access' }
+      })
+    );
+    await fs.writeFile(paths.config, TOML.stringify({ model: 'gpt-5' }));
+    await service.createProfile({
+      name: 'openai',
+      kind: 'official',
+      authJson: {
+        OPENAI_API_KEY: null,
+        auth_mode: 'chatgpt',
+        tokens: { access_token: 'old-access' }
+      }
+    });
+    await service.createProfile({
+      name: 'tokenflux',
+      kind: 'custom',
+      authJson: { OPENAI_API_KEY: 'proxy-key' },
+      providerName: 'tokenflux',
+      providerBlock: { base_url: 'https://proxy.test/v1', env_key: 'OPENAI_API_KEY' }
+    });
+
+    const result = await service.switchProfile('tokenflux');
+    const state = await service.listProfiles();
+    const official = state.profiles.find((profile) => profile.name === 'openai');
+
+    expect(result.syncedOfficialAuthProfileName).toBeUndefined();
+    expect(result.officialAuthSyncSkipped).toBe(true);
+    expect(official?.authJson).toEqual({
+      OPENAI_API_KEY: null,
+      auth_mode: 'chatgpt',
+      tokens: { access_token: 'old-access' }
+    });
+    expect(state.active).toBe('tokenflux');
+  });
+
+  it('does not sync official auth while switching away from a custom provider', async () => {
+    await service.createProfile({
+      name: 'openai',
+      kind: 'official',
+      authJson: {
+        OPENAI_API_KEY: null,
+        auth_mode: 'chatgpt',
+        tokens: { access_token: 'official-access' }
+      }
+    });
+    await service.createProfile({
+      name: 'tokenflux',
+      kind: 'custom',
+      authJson: { OPENAI_API_KEY: 'proxy-key' },
+      providerName: 'tokenflux',
+      providerBlock: { base_url: 'https://proxy.test/v1', env_key: 'OPENAI_API_KEY' }
+    });
+    await service.switchProfile('tokenflux');
+    await fs.writeFile(paths.auth, JSON.stringify({ OPENAI_API_KEY: 'custom-live-key' }));
+
+    const result = await service.switchProfile('openai');
+    const state = await service.listProfiles();
+    const official = state.profiles.find((profile) => profile.name === 'openai');
+
+    expect(result.syncedOfficialAuthProfileName).toBeUndefined();
+    expect(result.officialAuthSyncSkipped).toBeUndefined();
+    expect(official?.authJson).toEqual({
+      OPENAI_API_KEY: null,
+      auth_mode: 'chatgpt',
+      tokens: { access_token: 'official-access' }
+    });
   });
 
   it('keeps current auth and writes provider bearer token when official auth reuse is enabled', async () => {

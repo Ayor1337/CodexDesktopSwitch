@@ -9,6 +9,7 @@ const api: AppApi = {
     delete: (name: string) => ipcRenderer.invoke('profiles:delete', name),
     rename: (oldName: string, newName: string) => ipcRenderer.invoke('profiles:rename', oldName, newName),
     importCurrent: (name: string) => ipcRenderer.invoke('profiles:importCurrent', name),
+    syncCurrentOfficialAuth: (name: string) => ipcRenderer.invoke('profiles:syncCurrentOfficialAuth', name),
     switch: (name: string) => ipcRenderer.invoke('profiles:switch', name)
   },
   codex: {

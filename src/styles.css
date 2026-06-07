@@ -20,6 +20,8 @@
   --icon-surface: #fff2eb;
   --success: #1f8a65;
   --success-surface: #dff4ea;
+  --warning: #9b5a00;
+  --warning-surface: #fff3d8;
   --error: #cf2d56;
   --error-surface: #fde6ed;
   --info: #2768c7;
@@ -62,6 +64,8 @@
   --icon-surface: #34261e;
   --success: #72c9a5;
   --success-surface: #17382c;
+  --warning: #f0b45c;
+  --warning-surface: #3a2a13;
   --error: #ff8eaa;
   --error-surface: #3d1722;
   --info: #9fbbe0;
@@ -94,6 +98,8 @@
     --icon-surface: #34261e;
     --success: #72c9a5;
     --success-surface: #17382c;
+    --warning: #f0b45c;
+    --warning-surface: #3a2a13;
     --error: #ff8eaa;
     --error-surface: #3d1722;
     --info: #9fbbe0;
@@ -277,6 +283,17 @@ textarea {
   background: var(--success);
   box-shadow: 0 0 0 3px var(--success-surface);
   animation: chipPulse 2.6s ease-out infinite;
+}
+
+.activeChip.stale {
+  color: var(--warning);
+  border-color: var(--warning);
+  background: var(--warning-surface);
+}
+
+.activeChip.stale .activePulse {
+  background: var(--warning);
+  box-shadow: 0 0 0 3px var(--warning-surface);
 }
 
 @keyframes chipPulse {
@@ -830,6 +847,23 @@ textarea {
   font-size: 13px;
   font-weight: 500;
   color: var(--ink);
+}
+
+.statusGrid .statusActions {
+  grid-column: 1 / -1;
+}
+
+.statusActions > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+
+.statusActions .ghostBtn {
+  height: 32px;
 }
 
 .editorPanel {

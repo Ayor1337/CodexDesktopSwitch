@@ -21,7 +21,15 @@ import {
   X,
   Zap
 } from 'lucide-react';
-import type { AppSettings, CurrentCodexState, Profile, ProfileInput, ProfileState, ProxyStatus } from './types';
+import type {
+  ActiveProfileDetection,
+  AppSettings,
+  CurrentCodexState,
+  Profile,
+  ProfileInput,
+  ProfileState,
+  ProxyStatus
+} from './types';
 
 type Page = 'profiles' | 'settings';
 type Tab = 'account' | 'providers';
@@ -48,6 +56,8 @@ const defaultSettings: AppSettings = {
   openAiAuthEnabled: false,
   openAiAuthProfileName: null
 };
+
+const emptyDetection: ActiveProfileDetection = { status: 'none', profileName: null };
 
 function stringifyJson(value: unknown): string {
   return JSON.stringify(value ?? {}, null, 2);
@@ -165,7 +175,7 @@ function createDraft(profile?: Profile): ProfileInput {
 export function App(): JSX.Element {
   const [state, setState] = useState<ProfileState>({ version: 1, active: null, profiles: [] });
   const [selectedName, setSelectedName] = useState<string | null>(null);
-  const [activeDetected, setActiveDetected] = useState<string | null>(null);
+  const [activeDetected, setActiveDetected] = useState<ActiveProfileDetection>(emptyDetection);
   const [current, setCurrent] = useState<CurrentCodexState | null>(null);
   const [settings, setSettings] = useState<AppSettings>(defaultSettings);
   const [page, setPage] = useState<Page>('profiles');
@@ -182,6 +192,8 @@ export function App(): JSX.Element {
   const [nameDialog, setNameDialog] = useState<NameDialog | null>(null);
   const [switchDialog, setSwitchDialog] = useState<SwitchDialog>(null);
   const [repairDialogOpen, setRepairDialogOpen] = useState(false);
+  const [authSyncDialogOpen, setAuthSyncDialogOpen] = useState(false);
+  const [authSyncDialogSuppressed, setAuthSyncDialogSuppressed] = useState(false);
   const [authEditorOpen, setAuthEditorOpen] = useState(false);
   const [providerEditorOpen, setProviderEditorOpen] = useState(false);
   const [providerParseError, setProviderParseError] = useState<string | null>(null);
@@ -213,6 +225,22 @@ export function App(): JSX.Element {
   useEffect(() => {
     refresh().catch((error) => setNotice({ kind: 'error', text: String(error.message || error) }));
   }, []);
+
+  useEffect(() => {
+    const interval = window.setInterval(() => {
+      refresh().catch((error) => setNotice({ kind: 'error', text: String(error.message || error) }));
+    }, 30_000);
+    return () => window.clearInterval(interval);
+  }, []);
+
+  useEffect(() => {
+    if (activeDetected.status === 'not_sync') {
+      if (!authSyncDialogSuppressed) setAuthSyncDialogOpen(true);
+      return;
+    }
+    setAuthSyncDialogSuppressed(false);
+    setAuthSyncDialogOpen(false);
+  }, [activeDetected.status, activeDetected.profileName, authSyncDialogSuppressed]);
 
   useEffect(() => {
     document.documentElement.dataset.theme = settings.themeMode;
@@ -411,6 +439,7 @@ export function App(): JSX.Element {
       if (next) {
         setSelectedName(value);
         setNameDialog(null);
+        setAuthSyncDialogSuppressed(false);
       }
       return;
     }
@@ -442,7 +471,7 @@ export function App(): JSX.Element {
     if (!switchDialog) return;
     const target = switchDialog.profileName;
     const next = await run(async () => {
-      await window.codexSwitch.profiles.switch(target);
+      const switchResult = await window.codexSwitch.profiles.switch(target);
       if (typeof window.codexSwitch.codex.restart !== 'function') {
         throw new Error('重启 Codex 的 preload API 尚未加载。请完全关闭并重新启动此 Electron 应用后再试。');
       }
@@ -450,8 +479,19 @@ export function App(): JSX.Element {
       if (!restartResult.started) {
         throw new Error('已切换 profile，但没有找到正在运行的 Codex 桌面应用路径，因此未重启。请手动重新打开 Codex。');
       }
-      return true;
+      return switchResult;
     }, `已切换到 ${target}，并已请求重启 Codex`);
+    if (next?.syncedOfficialAuthProfileName) {
+      setNotice({
+        kind: 'success',
+        text: `已切换到 ${target}，并已保存当前官方登录态到 ${next.syncedOfficialAuthProfileName}。`
+      });
+    } else if (next?.officialAuthSyncSkipped) {
+      setNotice({
+        kind: 'info',
+        text: `已切换到 ${target}，但当前官方登录态未匹配到任何 Official profile，因此未自动同步。`
+      });
+    }
     if (next) setSwitchDialog(null);
   }
 
@@ -495,6 +535,29 @@ export function App(): JSX.Element {
     if (result) setRepairDialogOpen(false);
   }
 
+  async function syncCurrentOfficialAuth(): Promise<void> {
+    const profileName = activeDetected.status === 'not_sync' ? activeDetected.profileName : null;
+    if (!profileName) return;
+    const next = await run(() => window.codexSwitch.profiles.syncCurrentOfficialAuth(profileName), '当前官方登录态已同步');
+    if (next) {
+      setSelectedName(profileName);
+      setAuthSyncDialogOpen(false);
+      setAuthSyncDialogSuppressed(false);
+      setNotice({ kind: 'success', text: `已将当前官方登录态保存到 ${profileName}。` });
+    }
+  }
+
+  function createProfileFromCurrentAuth(): void {
+    setAuthSyncDialogSuppressed(true);
+    setAuthSyncDialogOpen(false);
+    importCurrent();
+  }
+
+  function closeNameDialog(): void {
+    if (nameDialog?.kind === 'import') setAuthSyncDialogSuppressed(false);
+    setNameDialog(null);
+  }
+
   const authObject = parseJsonObject(authText);
   const providerBlock = draft.providerBlock || {};
   const providerBaseUrl = readPath(providerBlock, ['base_url']);
@@ -502,7 +565,14 @@ export function App(): JSX.Element {
   const providerWireName = readPath(providerBlock, ['name']);
   const providerRequiresOpenAiAuth =
     providerBlock.requires_openai_auth === undefined ? true : readBool(providerBlock, ['requires_openai_auth']);
-  const activeName = activeDetected || state.active;
+  const activeName = activeDetected.profileName || state.active;
+  const isActiveNotSync = activeDetected.status === 'not_sync';
+  const detectedLabel =
+    activeDetected.status === 'sync'
+      ? activeDetected.profileName || '未匹配'
+      : activeDetected.status === 'not_sync'
+        ? `${activeDetected.profileName} · 未同步`
+        : '未匹配';
   const officialProfiles = state.profiles.filter((profile) => profile.kind === 'official');
   const selectedOpenAiAuthProfile =
     settings.openAiAuthProfileName && officialProfiles.some((profile) => profile.name === settings.openAiAuthProfileName)
@@ -546,8 +616,8 @@ export function App(): JSX.Element {
     setPage('profiles');
   }
 
-  const activeChipLabel = activeName || '未匹配';
-  const activeChipKind = activeName ? 'live' : 'idle';
+  const activeChipLabel = isActiveNotSync ? `${activeName} · 未同步` : activeName || '未匹配';
+  const activeChipKind = isActiveNotSync ? 'stale' : activeName ? 'live' : 'idle';
   const noticeTitle = visibleNotice?.kind === 'success' ? '操作完成' : visibleNotice?.kind === 'error' ? '需要处理' : '提示';
 
   return (
@@ -561,7 +631,7 @@ export function App(): JSX.Element {
           type="button"
           className={`activeChip ${activeChipKind}`}
           onClick={focusActiveProfile}
-          title={activeName ? `当前激活：${activeName}` : '尚未匹配到任何 profile'}
+          title={isActiveNotSync ? `当前官方登录态未同步：${activeName}` : activeName ? `当前激活：${activeName}` : '尚未匹配到任何 profile'}
         >
           <span className="activePulse" />
           <span className="activeChipText">
@@ -661,7 +731,9 @@ export function App(): JSX.Element {
                   <strong>{profile.name}</strong>
                   <small>{profile.kind === 'official' ? 'Official OpenAI OAuth' : profile.providerName}</small>
                 </span>
-                {profile.name === activeName && <span className="activeDot" title="当前激活" />}
+                {profile.name === activeName && (
+                  <span className={`activeDot ${isActiveNotSync ? 'stale' : ''}`} title={isActiveNotSync ? '当前官方登录态未同步' : '当前激活'} />
+                )}
               </button>
             ))}
           </div>
@@ -843,12 +915,27 @@ export function App(): JSX.Element {
               <div className="statusGrid">
                 <div>
                   <span>检测激活</span>
-                  <strong>{activeDetected || '未匹配'}</strong>
+                  <strong>{detectedLabel}</strong>
                 </div>
                 <div>
                   <span>当前 provider</span>
                   <strong>{current?.providerName || 'Official OpenAI OAuth'}</strong>
                 </div>
+                {isActiveNotSync && (
+                  <div className="statusActions">
+                    <span>官方登录态未同步</span>
+                    <div>
+                      <button type="button" className="ghostBtn" disabled={busy} onClick={syncCurrentOfficialAuth}>
+                        <RefreshCw size={14} />
+                        同步当前配置
+                      </button>
+                      <button type="button" className="ghostBtn" disabled={busy} onClick={importCurrent}>
+                        <Plus size={14} />
+                        创建新的配置
+                      </button>
+                    </div>
+                  </div>
+                )}
                 {proxyStatus.running && (
                   <div>
                     <span>翻译代理</span>
@@ -1188,8 +1275,38 @@ export function App(): JSX.Element {
         </div>
       )}
 
+      {authSyncDialogOpen && activeDetected.status === 'not_sync' && activeDetected.profileName && (
+        <div className="dialogBackdrop">
+          <form
+            className="nameDialog"
+            onClick={(event) => event.stopPropagation()}
+            onSubmit={(event) => {
+              event.preventDefault();
+              void syncCurrentOfficialAuth();
+            }}
+          >
+            <h3>官方登录态未同步</h3>
+            <p>
+              当前 <code>~/.codex/auth.json</code> 已不同于 <strong>{activeDetected.profileName}</strong>。
+              请选择保存当前官方订阅登录态，或创建一个新的 profile。
+            </p>
+            <div className="dialogActions">
+              <button type="button" disabled={busy} onClick={createProfileFromCurrentAuth}>
+                创建新的配置
+              </button>
+              <button type="submit" disabled={busy}>
+                同步当前配置
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
       {nameDialog && (
-        <div className="dialogBackdrop" onClick={() => setNameDialog(null)}>
+        <div
+          className="dialogBackdrop"
+          onClick={closeNameDialog}
+        >
           <form
             className="nameDialog"
             onClick={(event) => event.stopPropagation()}
@@ -1213,7 +1330,7 @@ export function App(): JSX.Element {
               />
             </label>
             <div className="dialogActions">
-              <button type="button" disabled={busy} onClick={() => setNameDialog(null)}>
+              <button type="button" disabled={busy} onClick={closeNameDialog}>
                 取消
               </button>
               <button type="submit" disabled={busy}>

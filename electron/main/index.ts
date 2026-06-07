@@ -138,6 +138,7 @@ function registerIpc(service: CodexSwitchService): void {
   ipcMain.handle('profiles:delete', (_event, name) => service.deleteProfile(name));
   ipcMain.handle('profiles:rename', (_event, oldName, newName) => service.renameProfile(oldName, newName));
   ipcMain.handle('profiles:importCurrent', (_event, name) => service.importCurrent(name));
+  ipcMain.handle('profiles:syncCurrentOfficialAuth', (_event, name) => service.syncCurrentOfficialAuthProfile(name));
   ipcMain.handle('profiles:switch', (_event, name) => service.switchProfile(name));
   ipcMain.handle('codex:readCurrent', () => service.readCurrent());
   ipcMain.handle('codex:detectActiveProfile', () => service.detectActiveProfile());
