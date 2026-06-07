@@ -531,7 +531,7 @@ export function App(): JSX.Element {
         throw new Error('修复已完成，但没有找到正在运行的 Codex 桌面应用路径，因此未自动重启。请手动重新打开 Codex Desktop。');
       }
       return true;
-    }, '修复已完成：已同步本地 openai-bundled marketplace、Computer Use 兼容插件和插件缓存，并已请求重启 Codex Desktop。');
+    }, '重置已完成：已清理 Computer Use 缓存、旧本地覆盖配置和过期 node_repl MCP 配置，并已请求重启 Codex Desktop。请在 Codex 内重新下载/启用 Computer Use。');
     if (result) setRepairDialogOpen(false);
   }
 
@@ -872,18 +872,18 @@ export function App(): JSX.Element {
                     <div className="settingsForm">
                       <div className="settingsActionField">
                         <span>
-                          <strong>修复 Computer Use 本地兼容插件</strong>
+                          <strong>重置 Computer Use 缓存</strong>
                           <small>
-                            备份 config.toml，镜像 openai-bundled marketplace，安装本地 Computer Use 兼容插件并刷新 Browser / Chrome 缓存。
+                            清理 Computer Use 插件缓存、旧本地覆盖配置和过期 node_repl MCP 配置，保留 Computer Use 启用开关。
                           </small>
                         </span>
                         <button type="button" className="ghostBtn" disabled={busy} onClick={() => setRepairDialogOpen(true)}>
                           <Wrench size={14} />
-                          <span>修复</span>
+                          <span>重置</span>
                         </button>
                       </div>
                       <div className="settingsHint">
-                        完成后会自动重启当前运行的 Codex Desktop；该修复不会重打包或重装 Codex Desktop。
+                        完成后会自动重启当前运行的 Codex Desktop；请在 Codex 内自行重新下载/启用 Computer Use。
                       </div>
                     </div>
                   </section>
@@ -1257,18 +1257,18 @@ export function App(): JSX.Element {
               void repairComputerUseCache();
             }}
           >
-            <h3>修复 Computer Use 本地兼容插件？</h3>
+            <h3>重置 Computer Use 缓存？</h3>
             <p>
-              此操作会备份 <code>~/.codex/config.toml</code>，从已安装 Codex Desktop 镜像 openai-bundled marketplace，安装本地 Computer
-              Use 兼容插件，刷新 Browser / Chrome / Computer Use 缓存，并启用 Windows Computer Use 环境变量。完成后会自动重启当前运行的
-              Codex Desktop；如果未找到正在运行的桌面应用路径，会提示手动重启。
+              此操作会备份 <code>~/.codex/config.toml</code>，清理 Computer Use 插件缓存、旧本地 openai-bundled 覆盖配置和过期 node_repl MCP
+              配置，并保留 Windows Computer Use 启用开关。完成后会自动重启当前运行的 Codex Desktop；请在 Codex 内自行重新下载/启用 Computer
+              Use。
             </p>
             <div className="dialogActions">
               <button type="button" disabled={busy} onClick={() => setRepairDialogOpen(false)}>
                 取消
               </button>
               <button type="submit" disabled={busy}>
-                确认修复
+                确认重置
               </button>
             </div>
           </form>

@@ -2,6 +2,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import TOML from '@iarna/toml';
 import { repairComputerUseCache } from '../electron/main/computerUseCache';
 import { createRuntimePaths, type RuntimePaths } from '../electron/main/paths';
 
@@ -17,44 +18,27 @@ vi.mock('node:child_process', async (importOriginal) => {
 
 let root: string;
 let paths: RuntimePaths;
-let installLocation: string;
 
-async function writeJson(target: string, value: unknown): Promise<void> {
+async function writeFile(target: string, content: string): Promise<void> {
   await fs.mkdir(path.dirname(target), { recursive: true });
-  await fs.writeFile(target, `${JSON.stringify(value, null, 2)}\n`);
+  await fs.writeFile(target, content);
 }
 
-async function writePlugin(rootPath: string, name: string, version: string): Promise<void> {
-  const pluginRoot = path.join(rootPath, 'plugins', name);
-  await writeJson(path.join(pluginRoot, '.codex-plugin', 'plugin.json'), { name, version });
-  await fs.mkdir(path.join(pluginRoot, 'extension-host', 'windows', 'x64'), { recursive: true });
-  await fs.writeFile(path.join(pluginRoot, 'extension-host', 'windows', 'x64', 'extension-host.exe'), 'exe');
+async function pathExists(target: string): Promise<boolean> {
+  try {
+    await fs.access(target);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 beforeEach(async () => {
   vi.clearAllMocks();
   root = await fs.mkdtemp(path.join(os.tmpdir(), 'codex-switch-computer-use-'));
   paths = createRuntimePaths(path.join(root, 'userData'), root);
-  installLocation = path.join(root, 'WindowsApps', 'OpenAI.Codex_1.0.0.0_x64__test');
-  const bundledRoot = path.join(installLocation, 'app', 'resources', 'plugins', 'openai-bundled');
-
-  await fs.mkdir(paths.codexDir, { recursive: true });
-  await writeJson(path.join(bundledRoot, '.agents', 'plugins', 'marketplace.json'), {
-    name: 'openai-bundled',
-    interface: { displayName: 'OpenAI Bundled' },
-    plugins: [
-      { name: 'browser', source: { source: 'local', path: './plugins/browser' } },
-      { name: 'chrome', source: { source: 'local', path: './plugins/chrome' } }
-    ]
-  });
-  await writePlugin(bundledRoot, 'browser', '1.2.3');
-  await writePlugin(bundledRoot, 'chrome', '4.5.6');
 
   execFileMock.mockImplementation((file: string, args: string[], options: unknown, callback: (error: Error | null, result: { stdout: string; stderr: string }) => void) => {
-    if (args.join(' ').includes('Get-AppxPackage')) {
-      callback(null, { stdout: `${installLocation}\r\n`, stderr: '' });
-      return { on: vi.fn() };
-    }
     if (args.join(' ').includes('SetEnvironmentVariable')) {
       callback(null, { stdout: '', stderr: '' });
       return { on: vi.fn() };
@@ -69,62 +53,98 @@ afterEach(async () => {
 });
 
 describe('repairComputerUseCache', () => {
-  it('mirrors bundled marketplace, installs local computer-use plugin, refreshes caches, and updates config', async () => {
-    await fs.writeFile(paths.config, ['model = "gpt-5"', '', '[features]', 'legacy = true', ''].join('\n'));
+  it('removes old local computer-use cache and config overrides while keeping feature enabled', async () => {
+    const marketplaceRoot = path.join(paths.codexDir, '.tmp', 'bundled-marketplaces', 'openai-bundled');
+    const computerUseCacheRoot = path.join(paths.codexDir, 'plugins', 'cache', 'openai-bundled', 'computer-use');
+    const browserCacheRoot = path.join(paths.codexDir, 'plugins', 'cache', 'openai-bundled', 'browser', 'latest');
+    const chromeCacheRoot = path.join(paths.codexDir, 'plugins', 'cache', 'openai-bundled', 'chrome', 'latest');
+
+    await writeFile(path.join(marketplaceRoot, 'plugins', 'computer-use', '.codex-plugin', 'plugin.json'), '{"name":"computer-use"}');
+    await writeFile(path.join(computerUseCacheRoot, '0.1.0-local', '.codex-plugin', 'plugin.json'), '{"name":"computer-use"}');
+    await writeFile(path.join(browserCacheRoot, '.codex-plugin', 'plugin.json'), '{"name":"browser"}');
+    await writeFile(path.join(chromeCacheRoot, '.codex-plugin', 'plugin.json'), '{"name":"chrome"}');
+    await writeFile(
+      paths.config,
+      TOML.stringify({
+        model: 'gpt-5',
+        features: {
+          legacy: true,
+          computer_use: false
+        },
+        windows: {
+          sandbox: 'unelevated'
+        },
+        marketplaces: {
+          'openai-bundled': {
+            source: `\\\\?\\${marketplaceRoot}`,
+            source_type: 'local'
+          }
+        },
+        plugins: {
+          'computer-use@openai-bundled': {
+            enabled: true
+          }
+        },
+        mcp_servers: {
+          node_repl: {
+            args: [],
+            command: 'C:\\Users\\ayor\\AppData\\Local\\OpenAI\\Codex\\bin\\34ab3e1324cc55b5\\node_repl.exe',
+            startup_timeout_sec: 120,
+            env: {
+              NODE_REPL_NODE_PATH: 'C:\\Users\\ayor\\AppData\\Local\\OpenAI\\Codex\\bin\\5b9024f90663758b\\node.exe',
+              CODEX_CLI_PATH: 'C:\\Users\\ayor\\AppData\\Local\\OpenAI\\Codex\\bin\\fb2111b91430cb17\\codex.exe',
+              BROWSER_USE_CODEX_APP_VERSION: '26.602.40724',
+              CODEX_HOME: paths.codexDir
+            }
+          },
+          custom: {
+            command: 'custom-mcp.exe'
+          }
+        }
+      })
+    );
 
     const result = await repairComputerUseCache(paths);
     const configText = await fs.readFile(paths.config, 'utf8');
-    const manifest = JSON.parse(await fs.readFile(path.join(result.marketplaceRoot, '.agents', 'plugins', 'marketplace.json'), 'utf8')) as {
-      plugins: Array<{ name: string; source: { path: string } }>;
-    };
 
     expect(result.backupPath).toBeTruthy();
-    expect(await fs.readFile(result.backupPath!, 'utf8')).toContain('model = "gpt-5"');
-    expect(manifest.plugins[0]).toMatchObject({ name: 'computer-use', source: { path: './plugins/computer-use' } });
-    await expect(fs.stat(path.join(result.pluginSourceRoot, '.codex-plugin', 'plugin.json'))).resolves.toBeTruthy();
-    await expect(
-      fs.stat(
-        path.join(
-          result.cacheVersionRoot,
-          'node_modules',
-          '@oai',
-          'sky',
-          'dist',
-          'project',
-          'cua',
-          'sky_js',
-          'src',
-          'targets',
-          'windows',
-          'internal',
-          'helper_transport.js'
-        )
-      )
-    ).resolves.toBeTruthy();
-    await expect(fs.stat(path.join(paths.codexDir, 'plugins', 'cache', 'openai-bundled', 'browser', 'latest'))).resolves.toBeTruthy();
-    await expect(fs.stat(path.join(paths.codexDir, 'plugins', 'cache', 'openai-bundled', 'chrome', 'latest'))).resolves.toBeTruthy();
-    expect(configText).toContain('[marketplaces.openai-bundled]');
-    expect(configText).toContain('source_type = "local"');
-    expect(configText).toContain('[plugins."computer-use@openai-bundled"]');
-    expect(configText).toContain('enabled = true');
-    expect(configText).toContain('[windows]');
-    expect(configText).toContain('sandbox = "unelevated"');
+    expect(result.configUpdated).toBe(true);
+    expect(result.removedPaths).toEqual(expect.arrayContaining([computerUseCacheRoot, marketplaceRoot]));
+    expect(await fs.readFile(result.backupPath!, 'utf8')).toContain('[marketplaces.openai-bundled]');
+    await expect(pathExists(computerUseCacheRoot)).resolves.toBe(false);
+    await expect(pathExists(marketplaceRoot)).resolves.toBe(false);
+    await expect(pathExists(browserCacheRoot)).resolves.toBe(true);
+    await expect(pathExists(chromeCacheRoot)).resolves.toBe(true);
+    expect(configText).not.toContain('[marketplaces.openai-bundled]');
+    expect(configText).not.toContain('[plugins."computer-use@openai-bundled"]');
+    expect(configText).not.toContain('[mcp_servers.node_repl]');
+    expect(configText).not.toContain('NODE_REPL_NODE_PATH');
+    expect(configText).toContain('[mcp_servers.custom]');
+    expect(configText).toContain('command = "custom-mcp.exe"');
+    expect(configText).toContain('[features]');
+    expect(configText).toContain('legacy = true');
     expect(configText).toContain('computer_use = true');
-    expect(result.environmentEnabled).toBe(true);
-    expect(execFileMock).toHaveBeenCalledWith(
-      'powershell.exe',
-      expect.arrayContaining(['-NoProfile', '-Command', expect.stringContaining('SetEnvironmentVariable')]),
-      expect.anything(),
-      expect.any(Function)
-    );
+    expect(result.environmentEnabled).toBe(process.platform === 'win32');
+    if (process.platform === 'win32') {
+      expect(execFileMock).toHaveBeenCalledWith(
+        'powershell.exe',
+        expect.arrayContaining(['-NoProfile', '-Command', expect.stringContaining('SetEnvironmentVariable')]),
+        expect.anything(),
+        expect.any(Function)
+      );
+    }
   });
 
-  it('creates config when it is missing', async () => {
+  it('creates minimal config when it is missing', async () => {
     const result = await repairComputerUseCache(paths);
     const configText = await fs.readFile(paths.config, 'utf8');
 
     expect(result.backupPath).toBeNull();
-    expect(configText).toContain('[marketplaces.openai-bundled]');
-    expect(configText).toContain('[plugins."computer-use@openai-bundled"]');
+    expect(result.configUpdated).toBe(true);
+    expect(result.removedPaths).toEqual([]);
+    expect(configText).toContain('[features]');
+    expect(configText).toContain('computer_use = true');
+    expect(configText).not.toContain('[marketplaces.openai-bundled]');
+    expect(configText).not.toContain('[plugins."computer-use@openai-bundled"]');
   });
 });
