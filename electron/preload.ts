@@ -2,6 +2,9 @@ import { contextBridge, ipcRenderer } from 'electron';
 import type { AppApi, ProfileInput } from '../src/types';
 
 const api: AppApi = {
+  app: {
+    getVersion: () => ipcRenderer.invoke('app:getVersion')
+  },
   profiles: {
     list: () => ipcRenderer.invoke('profiles:list'),
     create: (profile: ProfileInput) => ipcRenderer.invoke('profiles:create', profile),

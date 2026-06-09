@@ -178,6 +178,7 @@ export function App(): JSX.Element {
   const [activeDetected, setActiveDetected] = useState<ActiveProfileDetection>(emptyDetection);
   const [current, setCurrent] = useState<CurrentCodexState | null>(null);
   const [settings, setSettings] = useState<AppSettings>(defaultSettings);
+  const [appVersion, setAppVersion] = useState('');
   const [page, setPage] = useState<Page>('profiles');
   const [tab, setTab] = useState<Tab>('account');
   const [notice, setNotice] = useState<Notice>(null);
@@ -207,18 +208,20 @@ export function App(): JSX.Element {
   );
 
   async function refresh(): Promise<void> {
-    const [profiles, codexState, detected, appSettings, proxy] = await Promise.all([
+    const [profiles, codexState, detected, appSettings, proxy, version] = await Promise.all([
       window.codexSwitch.profiles.list(),
       window.codexSwitch.codex.readCurrent(),
       window.codexSwitch.codex.detectActiveProfile(),
       window.codexSwitch.settings.get(),
-      window.codexSwitch.codex.proxyStatus()
+      window.codexSwitch.codex.proxyStatus(),
+      window.codexSwitch.app.getVersion()
     ]);
     setState(profiles);
     setCurrent(codexState);
     setActiveDetected(detected);
     setSettings(appSettings);
     setProxyStatus(proxy);
+    setAppVersion(version);
     setSelectedName((name) => name || profiles.profiles[0]?.name || null);
   }
 
@@ -880,6 +883,13 @@ export function App(): JSX.Element {
                       </div>
                       <div className="settingsHint">
                         完成后会自动重启当前运行的 Codex Desktop；请在 Codex 内自行重新下载/启用 Computer Use。
+                      </div>
+                      <div className="settingsInfoField">
+                        <span>
+                          <strong>当前版本</strong>
+                          <small>Codex Switch 应用版本</small>
+                        </span>
+                        <code>{appVersion || '读取中'}</code>
                       </div>
                     </div>
                   </section>

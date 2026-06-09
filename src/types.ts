@@ -96,6 +96,9 @@ export interface RepairComputerUseCacheResult {
 }
 
 export interface AppApi {
+  app: {
+    getVersion: () => Promise<string>;
+  };
   profiles: {
     list: () => Promise<ProfileState>;
     create: (profile: ProfileInput) => Promise<ProfileState>;

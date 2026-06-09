@@ -132,6 +132,7 @@ function createWindow(showOnReady = true): void {
 }
 
 function registerIpc(service: CodexSwitchService): void {
+  ipcMain.handle('app:getVersion', () => app.getVersion());
   ipcMain.handle('profiles:list', () => service.listProfiles());
   ipcMain.handle('profiles:create', (_event, profile) => service.createProfile(profile));
   ipcMain.handle('profiles:update', (_event, name, patch) => service.updateProfile(name, patch));
