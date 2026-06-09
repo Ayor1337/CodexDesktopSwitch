@@ -260,7 +260,8 @@ export function App(): JSX.Element {
     if (notice) {
       setVisibleNotice(notice);
       setNoticeLeaving(false);
-      return;
+      const timeout = window.setTimeout(() => setNotice(null), 6000);
+      return () => window.clearTimeout(timeout);
     }
 
     if (!visibleNotice) return;
@@ -1349,7 +1350,8 @@ export function App(): JSX.Element {
 
       {visibleNotice && (
         <div className={`noticeOverlay ${noticeLeaving ? 'leaving' : ''}`} role="status" aria-live="polite">
-          <div className={`noticeDialog ${visibleNotice.kind}`}>
+          <div className={`noticeDialog ${visibleNotice.kind}`} key={`${visibleNotice.kind}-${visibleNotice.text}`}>
+            <div className="noticeTimer" aria-hidden="true" />
             <div className="noticeIcon">
               {visibleNotice.kind === 'success' ? (
                 <CheckCircle2 size={18} />
