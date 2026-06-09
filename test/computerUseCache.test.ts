@@ -7,12 +7,14 @@ import { repairComputerUseCache } from '../electron/main/computerUseCache';
 import { createRuntimePaths, type RuntimePaths } from '../electron/main/paths';
 
 const execFileMock = vi.hoisted(() => vi.fn());
+const spawnMock = vi.hoisted(() => vi.fn(() => ({ unref: vi.fn() })));
 
 vi.mock('node:child_process', async (importOriginal) => {
   const actual = await importOriginal<typeof import('node:child_process')>();
   return {
     ...actual,
-    execFile: execFileMock
+    execFile: execFileMock,
+    spawn: spawnMock
   };
 });
 
@@ -39,6 +41,14 @@ beforeEach(async () => {
   paths = createRuntimePaths(path.join(root, 'userData'), root);
 
   execFileMock.mockImplementation((file: string, args: string[], options: unknown, callback: (error: Error | null, result: { stdout: string; stderr: string }) => void) => {
+    if (file === 'taskkill.exe') {
+      callback(null, { stdout: '', stderr: '' });
+      return { on: vi.fn() };
+    }
+    if (args.join(' ').includes('Get-CimInstance')) {
+      callback(null, { stdout: 'C:\\Program Files\\WindowsApps\\OpenAI.Codex\\app\\Codex.exe\r\n', stderr: '' });
+      return { on: vi.fn() };
+    }
     if (args.join(' ').includes('SetEnvironmentVariable')) {
       callback(null, { stdout: '', stderr: '' });
       return { on: vi.fn() };
@@ -109,6 +119,7 @@ describe('repairComputerUseCache', () => {
 
     expect(result.backupPath).toBeTruthy();
     expect(result.configUpdated).toBe(true);
+    expect(result.restart.started).toBe(process.platform === 'win32');
     expect(result.removedPaths).toEqual(expect.arrayContaining([computerUseCacheRoot, marketplaceRoot]));
     expect(await fs.readFile(result.backupPath!, 'utf8')).toContain('[marketplaces.openai-bundled]');
     await expect(pathExists(computerUseCacheRoot)).resolves.toBe(false);
@@ -126,6 +137,14 @@ describe('repairComputerUseCache', () => {
     expect(configText).toContain('computer_use = true');
     expect(result.environmentEnabled).toBe(process.platform === 'win32');
     if (process.platform === 'win32') {
+      expect(execFileMock).toHaveBeenCalledWith('taskkill.exe', ['/IM', 'codex.exe', '/F', '/T'], expect.anything(), expect.any(Function));
+      expect(execFileMock).toHaveBeenCalledWith('taskkill.exe', ['/IM', 'extension-host.exe', '/F', '/T'], expect.anything(), expect.any(Function));
+      expect(execFileMock).toHaveBeenCalledWith('taskkill.exe', ['/IM', 'extensionHost.exe', '/F', '/T'], expect.anything(), expect.any(Function));
+      expect(spawnMock).toHaveBeenCalledWith(
+        'C:\\Program Files\\WindowsApps\\OpenAI.Codex\\app\\Codex.exe',
+        [],
+        expect.objectContaining({ detached: true, shell: false })
+      );
       expect(execFileMock).toHaveBeenCalledWith(
         'powershell.exe',
         expect.arrayContaining(['-NoProfile', '-Command', expect.stringContaining('SetEnvironmentVariable')]),

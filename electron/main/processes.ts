@@ -2,6 +2,7 @@ import { execFile, spawn } from 'node:child_process';
 import { promisify } from 'node:util';
 
 const execFileAsync = promisify(execFile);
+const CODEX_PROCESS_IMAGE_NAMES = ['codex.exe', 'extension-host.exe', 'extensionHost.exe'];
 
 export interface RestartCodexResult {
   killed: string[];
@@ -27,6 +28,20 @@ async function findExecutablePath(imageNames: string[]): Promise<string | null> 
   }
 }
 
+export function startCodexProcess(executablePath: string): void {
+  const child = spawn(executablePath, [], {
+    detached: true,
+    shell: false,
+    stdio: 'ignore',
+    windowsHide: false
+  });
+  child.unref();
+}
+
+export function findRunningCodexExecutablePath(): Promise<string | null> {
+  return findExecutablePath(['codex.exe', 'Codex.exe']);
+}
+
 async function taskkill(imageName: string): Promise<boolean> {
   if (process.platform !== 'win32') return false;
   try {
@@ -37,26 +52,24 @@ async function taskkill(imageName: string): Promise<boolean> {
   }
 }
 
-export async function restartCodexProcesses(): Promise<RestartCodexResult> {
+export async function stopCodexProcesses(): Promise<string[]> {
   const killed: string[] = [];
-  const imageNames = ['codex.exe', 'extension-host.exe', 'extensionHost.exe'];
-  const codexExecutablePath = await findExecutablePath(['codex.exe', 'Codex.exe']);
 
-  for (const imageName of imageNames) {
+  for (const imageName of CODEX_PROCESS_IMAGE_NAMES) {
     if (await taskkill(imageName)) killed.push(imageName);
   }
+
+  return killed;
+}
+
+export async function restartCodexProcesses(): Promise<RestartCodexResult> {
+  const codexExecutablePath = await findRunningCodexExecutablePath();
+  const killed = await stopCodexProcesses();
 
   if (!codexExecutablePath) {
     return { killed, started: false, executablePath: null };
   }
 
-  const child = spawn(codexExecutablePath, [], {
-    detached: true,
-    shell: false,
-    stdio: 'ignore',
-    windowsHide: false
-  });
-  child.unref();
-
+  startCodexProcess(codexExecutablePath);
   return { killed, started: true, executablePath: codexExecutablePath };
 }

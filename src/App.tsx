@@ -522,12 +522,8 @@ export function App(): JSX.Element {
 
   async function repairComputerUseCache(): Promise<void> {
     const result = await run(async () => {
-      await window.codexSwitch.codex.repairComputerUseCache();
-      if (typeof window.codexSwitch.codex.restart !== 'function') {
-        throw new Error('修复已完成，但重启 Codex 的 preload API 尚未加载。请完全关闭并重新启动此 Electron 应用后再试。');
-      }
-      const restartResult = await window.codexSwitch.codex.restart();
-      if (!restartResult.started) {
+      const repairResult = await window.codexSwitch.codex.repairComputerUseCache();
+      if (!repairResult.restart.started) {
         throw new Error('修复已完成，但没有找到正在运行的 Codex 桌面应用路径，因此未自动重启。请手动重新打开 Codex Desktop。');
       }
       return true;

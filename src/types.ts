@@ -92,6 +92,7 @@ export interface RepairComputerUseCacheResult {
   removedPaths: string[];
   configUpdated: boolean;
   environmentEnabled: boolean;
+  restart: RestartCodexResult;
 }
 
 export interface AppApi {

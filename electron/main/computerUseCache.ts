@@ -5,6 +5,7 @@ import { promisify } from 'node:util';
 import TOML from '@iarna/toml';
 import type { RuntimePaths } from './paths';
 import { writeFileAtomic } from './atomic';
+import { findRunningCodexExecutablePath, startCodexProcess, stopCodexProcesses, type RestartCodexResult } from './processes';
 
 const execFileAsync = promisify(execFile);
 
@@ -13,6 +14,7 @@ export interface RepairComputerUseCacheResult {
   removedPaths: string[];
   configUpdated: boolean;
   environmentEnabled: boolean;
+  restart: RestartCodexResult;
 }
 
 function timestamp(): string {
@@ -159,6 +161,8 @@ async function enableUserEnvironment(): Promise<boolean> {
 
 export async function repairComputerUseCache(paths: RuntimePaths): Promise<RepairComputerUseCacheResult> {
   await fs.mkdir(paths.codexDir, { recursive: true });
+  const executablePath = await findRunningCodexExecutablePath();
+  const killed = await stopCodexProcesses();
 
   const removedPaths: string[] = [];
   const computerUseCacheRoot = path.join(paths.codexDir, 'plugins', 'cache', 'openai-bundled', 'computer-use');
@@ -169,11 +173,17 @@ export async function repairComputerUseCache(paths: RuntimePaths): Promise<Repai
 
   const { backupPath, configUpdated } = await updateConfig(paths, marketplaceRoot);
   const environmentEnabled = await enableUserEnvironment();
+  if (executablePath) startCodexProcess(executablePath);
 
   return {
     backupPath,
     removedPaths,
     configUpdated,
-    environmentEnabled
+    environmentEnabled,
+    restart: {
+      killed,
+      started: !!executablePath,
+      executablePath
+    }
   };
 }
